@@ -92,6 +92,21 @@
       return null;
     }
 
+    /** End the take now (the reader tapped to finish). The end is the last sound, as with an automatic stop. */
+    finish() {
+      if (this.state !== 'speaking') return false;
+      this.state = 'done';
+      this.end = this.lastSound;
+      return true;
+    }
+
+    /** Seconds since the start, held at the last sound once there's been quiet for pauseSec. */
+    shown(pauseSec) {
+      if (this.start === null) return 0;
+      if (this.state === 'done') return this.end - this.start;
+      return (this.now - this.lastSound > pauseSec ? this.lastSound : this.now) - this.start;
+    }
+
     get elapsed() {
       if (this.start === null) return 0;
       return (this.state === 'done' ? this.end : this.now) - this.start;

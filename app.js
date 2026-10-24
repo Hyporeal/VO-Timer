@@ -11,8 +11,8 @@
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage unavailable */ } },
   };
   const DEFAULTS = { thresholdDb: -45, holdLine: 0.7, holdSection: 2.0, tolerance: 0.25, target: 'strict', mode: 'line',
-    autoAdvance: 'always', autoArm: false, listenToTarget: true, textSize: 26, theme: 'dark', calibrated: false, bannerDismissed: false };
-  const APP_VERSION = '1.3';
+    autoAdvance: 'always', autoArm: false, listenToTarget: true, minTakePct: 40, textSize: 26, theme: 'dark', calibrated: false, bannerDismissed: false };
+  const APP_VERSION = '1.4';
   const settings = Object.assign({}, DEFAULTS, store.get('vot.settings', {}));
   if (settings.autoAdvance === true) settings.autoAdvance = 'always';     // older boolean setting
   if (settings.autoAdvance === false) settings.autoAdvance = 'off';
@@ -55,6 +55,8 @@
   let calib = null;           // {kind, until, samples}
   let roomSamples = store.get('vot.room', null);
   let wakeLock = null;
+  let pending = [];           // timers for auto-advance / re-arm after a take
+  let lastSaved = null;       // {ts, keys, selIdx, label} for Discard
 
   // ---------- helpers ----------
   function toast(msg) {
@@ -70,6 +72,9 @@
     return (sec.group === 'open' ? 'Opening ' : sec.group === 'close' ? 'Close ' : 'Section ') + sec.groupN;
   }
   function lineNo(line) { return line.idx + 1; }
+  const isLive = () => !!take && take.status === 'live';
+  function clearPending() { pending.forEach(clearTimeout); pending = []; }
+  function later(fn, ms) { pending.push(setTimeout(fn, ms)); }
 
   // ---------- audio ----------
   function audioCtx() {
@@ -120,6 +125,7 @@
   }
   async function playRange(start, end, ids) {
     if (!refBuffer) { toast('This project has no reference audio loaded.'); return; }
+    if (isLive()) return;
     cancelTake();
     stopPlayback();
     const c = audioCtx(); await c.resume();
@@ -135,6 +141,7 @@
   // ---------- takes ----------
   async function arm() {
     if (!P) { openProjects(); return; }
+    clearPending();
     stopPlayback();
     if (!(await ensureMic())) return;
     requestWakeLock();
@@ -150,30 +157,73 @@
     if (!take) return;
     take = null; renderTakeState();
   }
-  function saveTake(key, d, est) {
-    (takes[key] = takes[key] || []).push({ d: +d.toFixed(3), ts: Date.now(), tt: settings.target, est: !!est });
+  function finishNow() {
+    if (isLive() && take.det.finish()) finishTake(true);
+  }
+  function armButton() {
+    if (!take) arm();
+    else if (isLive()) finishNow();
+    else cancelTake();
+  }
+  function discard() {
+    clearPending();
+    if (isLive()) {
+      take = null; renderTakeState();
+      $('#status').textContent = 'Take discarded';
+      return;
+    }
+    if (!lastSaved || !P) return;
+    const ls = lastSaved; lastSaved = null;
+    for (const key of ls.keys) {
+      if (!takes[key]) continue;
+      takes[key] = takes[key].filter((x) => x.ts !== ls.ts);
+      if (!takes[key].length) delete takes[key];
+    }
+    store.set('vot.takes.' + P.id, takes);
+    take = null;
+    select(ls.selIdx);
+    $('#parts').innerHTML = '';
+    $('#prevResult').textContent = `Previous take discarded (${ls.label}).`;
+    renderLines(); renderTakeState();
+    $('#status').textContent = 'Take discarded';
+  }
+  function saveTake(key, d, est, ts) {
+    (takes[key] = takes[key] || []).push({ d: +d.toFixed(3), ts, tt: settings.target, est: !!est });
     if (takes[key].length > 60) takes[key].shift();
     store.set('vot.takes.' + P.id, takes);
+    if (lastSaved && lastSaved.ts === ts) lastSaved.keys.push(key);
   }
-  function finishTake() {
+  function finishTake(manual) {
     const t = take; t.status = 'done';
     const dur = t.det.duration;
     const tol = settings.tolerance;
+    const target = targetOf(t.mode === 'line' ? t.line : t.sec);
+    // An automatic stop far shorter than the target is a cough or an "okay", not a take: ignore it and stay armed.
+    if (!manual && settings.minTakePct > 0 && dur < target * settings.minTakePct / 100) {
+      take = null;
+      arm().then(() => {
+        $('#verdict').textContent = `Ignored a ${fmt(dur)} s sound (too short to count). Still armed.`;
+        $('#verdict').className = 'verdict';
+      });
+      return;
+    }
     const parts = $('#parts'); parts.innerHTML = '';
     const label = t.mode === 'line' ? `Line ${lineNo(t.line)}` : `Section ${secName(t.sec)}`;
-    const pg = VOT.grade(dur, targetOf(t.mode === 'line' ? t.line : t.sec), tol);
+    const pg = VOT.grade(dur, target, tol);
+    const ts = Date.now();
+    lastSaved = { ts, keys: [], selIdx: t.line.idx, label };
     $('#prevResult').innerHTML = `Previous take · ${label}: <b class="num ${pg.band}">${fmt(dur)}</b> (${pg.delta <= 0 ? Math.abs(pg.delta).toFixed(2) + ' s under' : pg.delta.toFixed(2) + ' s over'})`;
     if (t.mode === 'line') {
-      saveTake(t.line.id, dur, false);
+      saveTake(t.line.id, dur, false, ts);
       showResult(dur, targetOf(t.line));
     } else {
       const sec = t.sec;
-      saveTake('sec:' + sec.id, dur, false);
+      saveTake('sec:' + sec.id, dur, false, ts);
       showResult(dur, targetOf(sec));
       const split = t.det.split(sec.lines.length);
       if (split) {
         split.forEach((p, i) => {
-          const ln = sec.lines[i]; saveTake(ln.id, p.dur, true);
+          const ln = sec.lines[i]; saveTake(ln.id, p.dur, true, ts);
           const g = VOT.grade(p.dur, targetOf(ln), tol);
           const row = document.createElement('div');
           row.innerHTML = `<span>Line ${lineNo(ln)}${ln.title ? ' (title)' : ''}</span><span class="num chip ${g.band} est">${fmt(p.dur)} ${sign(g.delta)}</span>`;
@@ -190,12 +240,12 @@
     const advance = settings.autoAdvance === 'always' || (settings.autoAdvance === 'pass' && passed);
     if (settings.autoAdvance === 'pass' && !passed) $('#status').textContent = 'Over target · staying on this line';
     if (advance) {
-      setTimeout(() => {
+      later(() => {
         move(1);
-        if (settings.autoArm) setTimeout(() => { if (!take && !playing) arm(); }, 400);
+        if (settings.autoArm) later(() => { if (!take && !playing) arm(); }, 400);
       }, 900);
     } else if (settings.autoArm) {
-      setTimeout(() => { if (!take && !playing) arm(); }, 1300);
+      later(() => { if (!take && !playing) arm(); }, 1300);
     }
   }
   function showResult(dur, target) {
@@ -268,7 +318,7 @@
     const rec = await idb.get(id);
     if (!rec) return false;
     cancelTake(); stopPlayback();
-    P = rec.meta; lines = [];
+    P = rec.meta; lines = []; lastSaved = null; clearPending();
     const firstLabeled = P.sections.findIndex((s) => s.label);
     let lastLabeled = -1; P.sections.forEach((s, i) => { if (s.label) lastLabeled = i; });
     let openN = 0, closeN = 0, midN = 0;
@@ -435,7 +485,7 @@
       $('#parts').innerHTML = '';
       setProgress(0, targetOf(take.mode === 'section' ? take.sec : take.line), '');
     } else if (take && take.status === 'live') {
-      arm.innerHTML = 'Timing<small>tap to cancel</small>'; arm.className = 'arm live';
+      arm.innerHTML = 'Timing<small>tap to finish</small>'; arm.className = 'arm live';
       st.textContent = 'Timing'; st.className = 'status live';
     } else {
       arm.textContent = 'Arm'; arm.className = 'arm';
@@ -460,6 +510,9 @@
     $('#tgtWindow').setAttribute('aria-pressed', settings.target === 'window' && hasRoom());
     $('#tgtStrict').setAttribute('aria-pressed', settings.target === 'strict' || !hasRoom());
     $('#tgtWindow').disabled = !!P && !hasRoom();
+    const canDiscard = isLive() || (!!lastSaved && !!P);
+    $('#btnDiscard').hidden = !canDiscard;
+    $('#btnDiscard').textContent = isLive() ? 'Discard this take' : 'Discard last take';
   }
 
   function renderMeterThr() {
@@ -472,20 +525,23 @@
     const hot = lastDb >= settings.thresholdDb;
     for (const id of ['#meterLvl', '#setLvl']) { const el = $(id); el.style.width = pct + '%'; el.classList.toggle('hot', hot); }
     if (micStream) $('#setLvlNum').textContent = lastDb.toFixed(0) + ' dB';
-    if (take && take.status === 'live') {
-      const e = take.det.elapsed; const tgt = targetOf(take.mode === 'section' ? take.sec : take.line);
+    if (isLive()) {
+      const d = take.det; const tgt = targetOf(take.mode === 'section' ? take.sec : take.line);
+      const pausing = d.now - d.lastSound > 0.25;
+      const e = d.shown(0.25);                       // held at your last word while you pause
       const band = e <= tgt ? '' : e <= tgt + settings.tolerance ? 'close' : 'over';
       $('#clock').textContent = fmt(e); $('#clock').className = 'clock' + (band ? ' ' + band : '');
       setProgress(e, tgt, band);
-      const d = take.det; const pausing = d.now - d.lastSound > 0.3;
-      $('#status').textContent = pausing && take.det.o.minMs && e < tgt ? `Pause · still listening until ${fmt(tgt)} s` : 'Timing';
+      const waitingForTarget = d.o.minMs && (d.now - d.start) < tgt;
+      $('#status').textContent = !pausing ? 'Timing' : waitingForTarget ? `Paused · listening until ${fmt(tgt)} s · tap to finish` : 'Paused · tap to finish';
     }
     requestAnimationFrame(frame);
   }
 
   // ---------- navigation ----------
   function select(idx, scroll = true) {
-    if (!P) return;
+    if (!P || isLive()) return;                    // taps on the script can't interrupt a take
+    clearPending();
     if (take) cancelTake();
     stopPlayback();
     selIdx = Math.max(0, Math.min(lines.length - 1, idx));
@@ -501,6 +557,7 @@
     } else select(selIdx + dir);
   }
   function playSelection(section) {
+    if (isLive()) return;
     if (playing) { stopPlayback(); return; }
     const ln = curLine(); if (!ln) return;
     if (section || settings.mode === 'section') playRange(ln.sec.start, ln.sec.end, ln.sec.lines.map((l) => l.id));
@@ -562,6 +619,7 @@
     $('#sText').value = settings.textSize; $('#oText').textContent = settings.textSize + ' px';
     $('#selAdv').value = settings.autoAdvance; $('#cArm').checked = settings.autoArm;
     $('#appVersion').textContent = 'VO Timer ' + APP_VERSION; $('#cMin').checked = settings.listenToTarget;
+    $('#sMinTake').value = settings.minTakePct; $('#oMinTake').textContent = settings.minTakePct ? settings.minTakePct + '% of target' : 'Off';
     $('#selTheme').value = settings.theme;
     document.documentElement.style.setProperty('--script-size', settings.textSize + 'px');
     document.documentElement.dataset.theme = settings.theme;
@@ -580,13 +638,14 @@
 
   // ---------- wiring ----------
   function wire() {
-    $('#btnArm').onclick = () => (take ? cancelTake() : arm());
+    $('#btnArm').onclick = armButton;
+    $('#btnDiscard').onclick = discard;
     $('#btnPrev').onclick = () => move(-1);
     $('#btnNext').onclick = () => move(1);
     $('#btnPlay').onclick = () => playSelection(false);
     $('#btnPlaySec').onclick = () => playSelection(true);
-    $('#modeLine').onclick = () => { settings.mode = 'line'; saveSettings(); cancelTake(); renderSelection(); };
-    $('#modeSection').onclick = () => { settings.mode = 'section'; saveSettings(); cancelTake(); renderSelection(); };
+    $('#modeLine').onclick = () => { if (isLive()) return; settings.mode = 'line'; saveSettings(); cancelTake(); renderSelection(); };
+    $('#modeSection').onclick = () => { if (isLive()) return; settings.mode = 'section'; saveSettings(); cancelTake(); renderSelection(); };
     $('#tgtStrict').onclick = () => { settings.target = 'strict'; saveSettings(); renderLines(); renderPanel(); };
     $('#tgtWindow').onclick = () => { settings.target = 'window'; saveSettings(); renderLines(); renderPanel(); };
     $('#btnSettings').onclick = openSettings;
@@ -608,6 +667,7 @@
     bindRange('#sHoldSec', 'holdSection', parseFloat);
     bindRange('#sTol', 'tolerance', parseFloat);
     bindRange('#sText', 'textSize', (v) => parseInt(v, 10));
+    bindRange('#sMinTake', 'minTakePct', (v) => parseInt(v, 10));
     $('#selAdv').onchange = (e) => { settings.autoAdvance = e.target.value; saveSettings(); };
     $('#cArm').onchange = (e) => { settings.autoArm = e.target.checked; saveSettings(); };
     $('#cMin').onchange = (e) => { settings.listenToTarget = e.target.checked; saveSettings(); };
@@ -617,16 +677,19 @@
       if (document.querySelector('dialog[open]')) return;
       if (e.target && /input|select|textarea/i.test(e.target.tagName)) return;
       const k = e.key;
-      if (k === ' ' || k === 'Enter') { e.preventDefault(); take ? cancelTake() : arm(); }
+      if (k === ' ' || k === 'Enter') { e.preventDefault(); armButton(); }
+      else if (k === 'Escape' || k === 'Backspace') { e.preventDefault(); if (take && take.status === 'armed') cancelTake(); else discard(); }
       else if (k === 'ArrowDown' || k === 'ArrowRight' || k === 'PageDown') { e.preventDefault(); move(1); }
       else if (k === 'ArrowUp' || k === 'ArrowLeft' || k === 'PageUp') { e.preventDefault(); move(-1); }
       else if (k === 'p' || k === 'P') { e.preventDefault(); playSelection(false); }
     });
-    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && micStream) requestWakeLock(); });
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') requestWakeLock(); });
+    document.addEventListener('pointerdown', requestWakeLock, { passive: true });
+    document.addEventListener('keydown', requestWakeLock);
   }
 
   async function boot() {
-    syncSettingsUI(); renderMeterThr(); wire(); renderScript(); renderButtons();
+    syncSettingsUI(); renderMeterThr(); wire(); renderScript(); renderButtons(); requestWakeLock();
     requestAnimationFrame(frame);
     const last = store.get('vot.last', null);
     if (last) { try { await openProject(last); } catch (e) { /* storage unavailable */ } }

@@ -152,6 +152,7 @@ button { cursor: pointer; }
 @keyframes pulse { 50% { opacity: .72; } }
 @media (prefers-reduced-motion: reduce) { .arm.on { animation: none; } .script { scroll-behavior: auto; } }
 .hint { color: var(--muted); font-size: 13px; }
+.discard { background: transparent; color: var(--muted); padding: 10px 14px; }
 
 /* Empty state */
 .empty { max-width: 640px; margin: 8vh auto 0; display: grid; gap: 14px; }
@@ -236,7 +237,8 @@ td.n, th.n { text-align: right; font-family: var(--font-num); font-variant-numer
       <button class="btn" id="btnNext" aria-label="Next">&#9654;</button>
     </div>
     <button class="arm" id="btnArm">Arm</button>
-    <div class="hint">Space or Enter arms. Arrow and Page keys move between lines, so a page-turner pedal works.</div>
+    <button class="btn discard" id="btnDiscard" hidden>Discard last take</button>
+    <div class="hint">Space or Enter arms, and finishes a take early. Esc discards. Arrow and Page keys move between lines, so a page-turner pedal works.</div>
   </aside>
 </main>
 
@@ -265,6 +267,9 @@ td.n, th.n { text-align: right; font-family: var(--font-num); font-variant-numer
         <small>Longer, so the pauses between lines don't end the section.</small></div>
       <div class="row"><label for="cMin">Keep listening until the target time</label><input type="checkbox" id="cMin">
         <small>Pauses before the target time can't end the take. Your time still ends at your last word, so finishing early still shows as under.</small></div>
+      <div class="row"><label for="sMinTake">Ignore sounds shorter than</label><output id="oMinTake" class="num"></output>
+        <input type="range" id="sMinTake" min="0" max="80" step="5">
+        <small>A cough or an "okay" between takes won't count as a take. You stay armed. Tapping to finish always keeps the take.</small></div>
     </fieldset>
     <fieldset>
       <legend>Results</legend>

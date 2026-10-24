@@ -9,6 +9,11 @@ A script and timing guide for voice-over practice, built for a Galaxy Tab S6 in 
 
 The real recording happens on your own equipment. The tablet's mic is only used for timing.
 
+## Backup copy
+
+`v1.3/` holds the previous version as a fallback, at `/VO-Timer/v1.3/`. It shares projects and takes
+with the main app.
+
 ## Privacy
 
 Everything runs in the browser. Project files (script, reference audio, timings) are opened from the
