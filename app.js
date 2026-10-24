@@ -11,7 +11,7 @@
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage unavailable */ } },
   };
   const DEFAULTS = { thresholdDb: -45, holdLine: 0.7, holdSection: 2.0, tolerance: 0.25, target: 'strict', mode: 'line',
-    autoAdvance: true, autoArm: false, textSize: 26, theme: 'dark', calibrated: false, bannerDismissed: false };
+    autoAdvance: true, autoArm: false, listenToTarget: true, textSize: 26, theme: 'dark', calibrated: false, bannerDismissed: false };
   const settings = Object.assign({}, DEFAULTS, store.get('vot.settings', {}));
   const saveSettings = () => store.set('vot.settings', settings);
 
@@ -136,7 +136,9 @@
     if (!(await ensureMic())) return;
     requestWakeLock();
     const mode = settings.mode;
-    const det = new VOT.Detector({ thresholdDb: settings.thresholdDb, holdMs: (mode === 'section' ? settings.holdSection : settings.holdLine) * 1000 });
+    const item = mode === 'section' ? curSec() : curLine();
+    const det = new VOT.Detector({ thresholdDb: settings.thresholdDb, holdMs: (mode === 'section' ? settings.holdSection : settings.holdLine) * 1000,
+      minMs: settings.listenToTarget ? targetOf(item) * 1000 : 0 });
     take = { det, mode, line: curLine(), sec: curSec(), status: 'armed' };
     $('#verdict').textContent = ''; $('#verdict').className = 'verdict'; $('#parts').innerHTML = '';
     renderTakeState();
@@ -467,6 +469,8 @@
       const band = e <= tgt ? '' : e <= tgt + settings.tolerance ? 'close' : 'over';
       $('#clock').textContent = fmt(e); $('#clock').className = 'clock' + (band ? ' ' + band : '');
       setProgress(e, tgt, band);
+      const d = take.det; const pausing = d.now - d.lastSound > 0.3;
+      $('#status').textContent = pausing && take.det.o.minMs && e < tgt ? `Pause · still listening until ${fmt(tgt)} s` : 'Timing';
     }
     requestAnimationFrame(frame);
   }
@@ -548,7 +552,7 @@
     $('#sHoldSec').value = settings.holdSection; $('#oHoldSec').textContent = settings.holdSection.toFixed(1) + ' s';
     $('#sTol').value = settings.tolerance; $('#oTol').textContent = settings.tolerance.toFixed(2) + ' s';
     $('#sText').value = settings.textSize; $('#oText').textContent = settings.textSize + ' px';
-    $('#cAdv').checked = settings.autoAdvance; $('#cArm').checked = settings.autoArm;
+    $('#cAdv').checked = settings.autoAdvance; $('#cArm').checked = settings.autoArm; $('#cMin').checked = settings.listenToTarget;
     $('#selTheme').value = settings.theme;
     document.documentElement.style.setProperty('--script-size', settings.textSize + 'px');
     document.documentElement.dataset.theme = settings.theme;
@@ -597,6 +601,7 @@
     bindRange('#sText', 'textSize', (v) => parseInt(v, 10));
     $('#cAdv').onchange = (e) => { settings.autoAdvance = e.target.checked; saveSettings(); };
     $('#cArm').onchange = (e) => { settings.autoArm = e.target.checked; saveSettings(); };
+    $('#cMin').onchange = (e) => { settings.listenToTarget = e.target.checked; saveSettings(); };
     $('#selTheme').onchange = (e) => { settings.theme = e.target.value; saveSettings(); syncSettingsUI(); };
 
     document.addEventListener('keydown', (e) => {

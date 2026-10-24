@@ -261,6 +261,8 @@ td.n, th.n { text-align: right; font-family: var(--font-num); font-variant-numer
       <div class="row"><label for="sHoldSec">Silence that ends a take (section mode)</label><output id="oHoldSec" class="num"></output>
         <input type="range" id="sHoldSec" min="0.8" max="5" step="0.1">
         <small>Longer, so the pauses between lines don't end the section.</small></div>
+      <div class="row"><label for="cMin">Keep listening until the target time</label><input type="checkbox" id="cMin">
+        <small>Pauses before the target time can't end the take. Your time still ends at your last word, so finishing early still shows as under.</small></div>
     </fieldset>
     <fieldset>
       <legend>Results</legend>

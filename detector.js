@@ -14,10 +14,11 @@
      * @param {number} o.resumeMs      sound after a gap must last this long to count as speech again
      * @param {number} o.holdMs        silence this long ends the take
      * @param {number} o.pauseMinMs    gaps at least this long are recorded as pauses
+     * @param {number} o.minMs         never stop before this much time since the start (pauses before it can't end the take)
      * @param {number} o.maxMs         safety stop
      */
     constructor(o) {
-      this.o = Object.assign({ thresholdDb: -45, releaseDb: 4, attackMs: 60, resumeMs: 40, holdMs: 700, pauseMinMs: 120, maxMs: 120000 }, o || {});
+      this.o = Object.assign({ thresholdDb: -45, releaseDb: 4, attackMs: 60, resumeMs: 40, holdMs: 700, pauseMinMs: 120, minMs: 0, maxMs: 120000 }, o || {});
       this.reset();
     }
 
@@ -81,7 +82,9 @@
         this.resumeLen = 0;
       }
 
-      if ((this.now - this.lastSound) * 1000 >= o.holdMs || (this.now - this.start) * 1000 >= o.maxMs) {
+      const sinceStart = (this.now - this.start) * 1000;
+      const silent = (this.now - this.lastSound) * 1000 >= o.holdMs;
+      if ((silent && sinceStart >= o.minMs) || sinceStart >= o.maxMs) {
         this.state = 'done';
         this.end = this.lastSound;
         return 'stop';
