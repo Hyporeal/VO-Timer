@@ -25,3 +25,18 @@ audio can be embedded as base64 or opened alongside as an mp3.
 
 Space / Enter: arm or cancel · Arrow keys / Page Up / Page Down: previous or next line · P: play.
 Bluetooth page-turner pedals that send arrow or page keys work for moving between lines.
+
+## Making a project file
+
+`tools/make_project.py` turns a script into a project file. See [FORMAT.md](FORMAT.md) for how to lay
+out the script.
+
+```
+pip install faster-whisper pronouncing python-docx      # ffmpeg must be installed too
+python3 tools/make_project.py script.docx --dry-run                     # check how it was split
+python3 tools/make_project.py script.docx --audio rough.mp3 --title "Spot name" --out out/
+python3 tools/make_project.py timed_script.docx --out out/              # times already in the script
+```
+
+It writes the project file, a copy of the script with times written in, and a report listing
+anything worth checking (lines not found in the read, possible misreads).

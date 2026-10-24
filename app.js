@@ -58,8 +58,9 @@
     const t = $('#toast'); t.textContent = msg; t.hidden = false;
     clearTimeout(toast._t); toast._t = setTimeout(() => { t.hidden = true; }, 2600);
   }
-  const targetOf = (item) => item.dur + (settings.target === 'window' ? Math.max(0, item.roomAfter || 0) : 0);
+  const targetOf = (item) => item.dur + (settings.target === 'window' && hasRoom() ? Math.max(0, item.roomAfter || 0) : 0);
   const curLine = () => lines[selIdx];
+  const hasRoom = () => !!P && !(P.source && P.source.mode === 'script');
   const curSec = () => (curLine() ? curLine().sec : null);
   function secName(sec) {
     if (sec.label) return sec.label;
@@ -355,11 +356,11 @@
     for (const s of P.sections) {
       const head = document.querySelector(`.sec[data-id="${s.id}"] .sec-head`);
       head.innerHTML = `<span class="name"></span><span class="mark">${s.mark || ''}</span><span class="spacer"></span>
-        <span class="num">${fmt(targetOf(s))} s</span><span class="num" title="Room after this section">+${fmt(Math.max(0, s.roomAfter))}</span>${chipHtml('sec:' + s.id, targetOf(s))}`;
+        <span class="num">${fmt(targetOf(s))} s</span>${hasRoom() ? `<span class="num" title="Room after this section">+${fmt(Math.max(0, s.roomAfter))}</span>` : ''}${chipHtml('sec:' + s.id, targetOf(s))}`;
       head.querySelector('.name').textContent = secName(s);
       for (const ln of s.lines) {
         const meta = document.querySelector(`.line[data-id="${ln.id}"] .meta`);
-        meta.innerHTML = `<span class="mark">${ln.mark || ''}</span><span class="tgt num">${fmt(targetOf(ln))}</span>${chipHtml(ln.id, targetOf(ln))}`;
+        meta.innerHTML = `<span class="mark">${ln.mark || ''}</span><span class="tgt num" title="${ln.est ? 'Estimated from the section time' : 'Target'}">${ln.est ? '~' : ''}${fmt(targetOf(ln))}</span>${chipHtml(ln.id, targetOf(ln))}`;
       }
     }
   }
@@ -390,7 +391,7 @@
       : `Line ${lineNo(ln)} · ${secName(ln.sec)}`;
     $('#selText').textContent = settings.mode === 'section' ? ln.sec.lines.map((l) => l.text).join(' ') : ln.text;
     $('#tgtVal').textContent = fmt(targetOf(item)) + ' s';
-    $('#roomVal').textContent = `room after +${fmt(Math.max(0, item.roomAfter))}`;
+    $('#roomVal').textContent = hasRoom() ? `room after +${fmt(Math.max(0, item.roomAfter))}` : (item.est ? 'estimated target' : '');
     if (!take) {
       const lt = lastTake(settings.mode === 'section' ? 'sec:' + item.id : item.id);
       if (lt) {
@@ -446,7 +447,9 @@
     $('#modeLine').setAttribute('aria-pressed', settings.mode === 'line');
     $('#modeSection').setAttribute('aria-pressed', settings.mode === 'section');
     $('#tgtStrict').setAttribute('aria-pressed', settings.target === 'strict');
-    $('#tgtWindow').setAttribute('aria-pressed', settings.target === 'window');
+    $('#tgtWindow').setAttribute('aria-pressed', settings.target === 'window' && hasRoom());
+    $('#tgtStrict').setAttribute('aria-pressed', settings.target === 'strict' || !hasRoom());
+    $('#tgtWindow').disabled = !!P && !hasRoom();
   }
 
   function renderMeterThr() {

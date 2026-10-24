@@ -1,0 +1,4 @@
+faster-whisper
+pronouncing
+python-docx
+numpy
