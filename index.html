@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>VO Timer</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#111316">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: script on the left reads like a page on a copy stand; the transport
+   panel on the right is the booth console. Stacks to script-over-panel in portrait. */
+:root {
+  --bg: #111316; --surface: #181b20; --surface-2: #21252c; --rule: #2b3039;
+  --fg: #e9ecef; --muted: #8d96a3; --accent: #f2a33a; --accent-ink: #1a1206;
+  --good: #3fb27f; --close: #e3c04b; --over: #e5534b; --sel: rgba(242,163,58,.13);
+  --font-ui: "Atkinson Hyperlegible", "Segoe UI", Roboto, system-ui, sans-serif;
+  --font-num: "JetBrains Mono", ui-monospace, "Roboto Mono", monospace;
+  --script-size: 26px;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root[data-theme="system"] {
+    --bg: #f5f6f8; --surface: #ffffff; --surface-2: #eceff3; --rule: #d7dbe1;
+    --fg: #15181c; --muted: #5b6471; --accent: #c06a00; --accent-ink: #ffffff;
+    --good: #1d8957; --close: #9a7a00; --over: #c7362e; --sel: rgba(192,106,0,.10);
+    color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --bg: #f5f6f8; --surface: #ffffff; --surface-2: #eceff3; --rule: #d7dbe1;
+  --fg: #15181c; --muted: #5b6471; --accent: #c06a00; --accent-ink: #ffffff;
+  --good: #1d8957; --close: #9a7a00; --over: #c7362e; --sel: rgba(192,106,0,.10);
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg); color: var(--fg); font: 16px/1.4 var(--font-ui);
+  padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px);
+  display: flex; flex-direction: column; overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+}
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+[hidden] { display: none !important; }
+.num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+
+/* Top bar */
+.bar {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 10px max(16px, env(safe-area-inset-right, 0px)) 10px max(16px, env(safe-area-inset-left, 0px));
+  border-bottom: 1px solid var(--rule); background: var(--surface);
+}
+.brand { font-weight: 700; letter-spacing: .02em; }
+.proj { color: var(--muted); flex: 1 1 200px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; }
+.seg button { border: 0; background: transparent; padding: 8px 14px; color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--surface-2); color: var(--fg); font-weight: 700; }
+.btn { border: 1px solid var(--rule); background: var(--surface-2); border-radius: 8px; padding: 8px 14px; }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; }
+.btn.danger { color: var(--over); }
+
+/* Main layout */
+.layout { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 360px; }
+.script { overflow-y: auto; padding: 18px max(16px, env(safe-area-inset-left, 0px)) 40vh 24px; scroll-behavior: smooth; }
+.panel {
+  border-left: 1px solid var(--rule); background: var(--surface);
+  padding: 18px max(16px, env(safe-area-inset-right, 0px)) 18px 18px;
+  display: flex; flex-direction: column; gap: 14px; overflow-y: auto;
+}
+@media (max-width: 860px), (orientation: portrait) and (max-width: 1100px) {
+  .layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+  .panel { border-left: 0; border-top: 1px solid var(--rule); display: grid; grid-template-columns: 1fr 1fr; align-items: start; gap: 12px 16px; max-height: 48vh; }
+  .panel .readout { grid-row: span 3; }
+  .script { padding-bottom: 30vh; }
+}
+
+/* Banner */
+.banner { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; background: var(--sel); border: 1px solid var(--accent); border-radius: 10px; padding: 12px 14px; margin: 0 0 18px; max-width: 900px; }
+.banner p { margin: 0; flex: 1 1 260px; }
+
+/* Script */
+.sec { max-width: 900px; margin: 0 0 22px; border-radius: 12px; border: 1px solid transparent; }
+.sec.selected { border-color: var(--accent); background: var(--sel); }
+.sec-head {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  padding: 8px 12px; color: var(--muted); font-size: 14px; letter-spacing: .04em; text-transform: uppercase; cursor: pointer;
+}
+.sec-head .name { color: var(--fg); font-weight: 700; }
+.sec-head .num { text-transform: none; letter-spacing: 0; }
+.sec-head .spacer { flex: 1; }
+.line {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; align-items: baseline;
+  padding: 8px 12px; border-left: 4px solid transparent; border-radius: 6px; cursor: pointer;
+}
+.line .txt { font-size: var(--script-size); line-height: 1.35; min-width: 0; overflow-wrap: anywhere; }
+.line.title .txt { font-weight: 700; font-size: calc(var(--script-size) * .82); letter-spacing: .02em; color: var(--muted); }
+.line.selected { border-left-color: var(--accent); background: var(--sel); }
+.line.playing .txt { text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 6px; }
+.meta { display: flex; gap: 8px; align-items: baseline; justify-content: flex-end; flex-wrap: wrap; font-size: 15px; }
+.mark { color: var(--accent); font-weight: 700; font-family: var(--font-num); }
+.tgt { color: var(--muted); }
+.chip { font-family: var(--font-num); font-variant-numeric: tabular-nums; padding: 2px 8px; border-radius: 6px; font-size: 14px; border: 1px solid currentColor; }
+.chip.good { color: var(--good); } .chip.close { color: var(--close); } .chip.over { color: var(--over); }
+.chip.est { border-style: dashed; }
+
+/* Panel */
+.sel-label { color: var(--muted); font-size: 13px; letter-spacing: .06em; text-transform: uppercase; }
+.sel-text { font-size: 15px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.readout { background: var(--bg); border: 1px solid var(--rule); border-radius: 14px; padding: 14px 16px; display: grid; gap: 8px; }
+.status { font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.status.armed { color: var(--accent); }
+.status.live { color: var(--fg); }
+.clock { font-family: var(--font-num); font-variant-numeric: tabular-nums; font-size: 64px; line-height: 1; font-weight: 600; }
+.clock.good { color: var(--good); } .clock.close { color: var(--close); } .clock.over { color: var(--over); }
+.target-row { display: flex; justify-content: space-between; color: var(--muted); font-size: 15px; }
+.progress { position: relative; height: 10px; border-radius: 5px; background: var(--surface-2); overflow: hidden; }
+.progress .fill { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--fg); border-radius: 5px; }
+.progress .fill.close { background: var(--close); } .progress .fill.over { background: var(--over); } .progress .fill.good { background: var(--good); }
+.progress .tick { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--accent); left: 80%; }
+.verdict { font-size: 18px; min-height: 1.4em; }
+.verdict.good { color: var(--good); } .verdict.close { color: var(--close); } .verdict.over { color: var(--over); }
+.parts { display: grid; gap: 4px; font-size: 14px; }
+.parts div { display: flex; justify-content: space-between; gap: 8px; }
+.prev { font-size: 14px; color: var(--muted); border-top: 1px solid var(--rule); padding-top: 8px; }
+.prev:empty { display: none; }
+.prev b.good { color: var(--good); } .prev b.close { color: var(--close); } .prev b.over { color: var(--over); }
+.meter { position: relative; height: 12px; border-radius: 6px; background: var(--surface-2); overflow: hidden; }
+.meter .lvl { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--muted); transition: width 50ms linear; }
+.meter .lvl.hot { background: var(--good); }
+.meter .thr { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--accent); }
+.meter-label { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
+.transport { display: grid; grid-template-columns: auto 1fr 1fr auto; gap: 8px; }
+.transport .btn { padding: 12px 10px; }
+.arm {
+  width: 100%; padding: 22px; border-radius: 14px; border: 2px solid var(--accent);
+  background: transparent; color: var(--accent); font-size: 24px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+}
+.arm small { display: block; font-size: 13px; letter-spacing: .06em; font-weight: 400; margin-top: 4px; opacity: .85; }
+.arm.on { background: var(--accent); color: var(--accent-ink); animation: pulse 1.4s ease-in-out infinite; }
+.arm.live { background: var(--fg); border-color: var(--fg); color: var(--bg); animation: none; }
+@keyframes pulse { 50% { opacity: .72; } }
+@media (prefers-reduced-motion: reduce) { .arm.on { animation: none; } .script { scroll-behavior: auto; } }
+.hint { color: var(--muted); font-size: 13px; }
+
+/* Empty state */
+.empty { max-width: 640px; margin: 8vh auto 0; display: grid; gap: 14px; }
+.empty h1 { margin: 0; font-size: 30px; text-wrap: balance; }
+.empty p { margin: 0; color: var(--muted); font-size: 17px; }
+
+/* Dialogs */
+dialog { border: 1px solid var(--rule); border-radius: 14px; background: var(--surface); color: var(--fg); padding: 0; width: min(720px, calc(100vw - 32px)); max-height: calc(100vh - 48px); }
+dialog::backdrop { background: rgba(0,0,0,.55); }
+.dlg-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--rule); position: sticky; top: 0; background: var(--surface); }
+.dlg-head h2 { margin: 0; font-size: 20px; }
+.dlg-body { padding: 16px 18px 22px; display: grid; gap: 18px; }
+fieldset { border: 1px solid var(--rule); border-radius: 10px; margin: 0; padding: 12px 14px 14px; display: grid; gap: 12px; }
+legend { padding: 0 6px; color: var(--muted); font-size: 13px; letter-spacing: .06em; text-transform: uppercase; }
+.row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; align-items: center; }
+.row label { min-width: 0; }
+.row small { grid-column: 1 / -1; color: var(--muted); }
+.row input[type="range"] { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); }
+.row output { font-family: var(--font-num); }
+.btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.note { color: var(--muted); font-size: 14px; margin: 0; }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+td.n, th.n { text-align: right; font-family: var(--font-num); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.proj-list { display: grid; gap: 8px; }
+.proj-item { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; border: 1px solid var(--rule); border-radius: 10px; padding: 10px 12px; }
+.proj-item .t { flex: 1 1 220px; min-width: 0; }
+.proj-item .t small { display: block; color: var(--muted); }
+.toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 10px 16px; border-radius: 10px; font-weight: 700; z-index: 50; max-width: calc(100vw - 32px); }
+</style>
+</head>
+<body>
+<header class="bar">
+  <span class="brand">VO Timer</span>
+  <span class="proj" id="projTitle">No project loaded</span>
+  <div class="seg" role="group" aria-label="Timing mode">
+    <button id="modeLine" aria-pressed="true">Line</button>
+    <button id="modeSection" aria-pressed="false">Section</button>
+  </div>
+  <div class="seg" role="group" aria-label="Target type">
+    <button id="tgtStrict" aria-pressed="true" title="Target is the length of the reference read">Strict</button>
+    <button id="tgtWindow" aria-pressed="false" title="Target is the reference read plus the room before the next cue">Window</button>
+  </div>
+  <button class="btn" id="btnHistory">Takes</button>
+  <button class="btn" id="btnSettings">Settings</button>
+  <button class="btn" id="btnProjects">Projects</button>
+</header>
+
+<main class="layout" id="layout">
+  <section class="script" id="script" aria-label="Script">
+    <div class="empty" id="empty">
+      <h1>Load a project to start timing</h1>
+      <p>A project file holds the script, your reference read and the target time for every line. Claude makes one from your rough mp3 and the script.</p>
+      <p>Your files stay on this tablet. Nothing is uploaded.</p>
+      <div class="btns"><button class="btn primary" id="btnOpenEmpty">Open project file</button></div>
+    </div>
+  </section>
+
+  <aside class="panel" id="panel" aria-label="Timing controls">
+    <div>
+      <div class="sel-label" id="selLabel">Nothing selected</div>
+      <div class="sel-text" id="selText"></div>
+    </div>
+    <div class="readout" aria-live="polite">
+      <div class="status" id="status">Ready</div>
+      <div class="clock" id="clock">0.00</div>
+      <div class="progress"><div class="fill" id="progFill"></div><div class="tick" id="progTick"></div></div>
+      <div class="target-row"><span>Target <span class="num" id="tgtVal">—</span></span><span id="roomVal"></span></div>
+      <div class="verdict" id="verdict"></div>
+      <div class="parts" id="parts"></div>
+      <div class="prev" id="prevResult"></div>
+    </div>
+    <div>
+      <div class="meter" title="Mic level"><div class="lvl" id="meterLvl"></div><div class="thr" id="meterThr"></div></div>
+      <div class="meter-label"><span>Mic level</span><span id="micState">Mic off</span></div>
+    </div>
+    <div class="transport">
+      <button class="btn" id="btnPrev" aria-label="Previous">&#9664;</button>
+      <button class="btn" id="btnPlay">Play line</button>
+      <button class="btn" id="btnPlaySec">Play section</button>
+      <button class="btn" id="btnNext" aria-label="Next">&#9654;</button>
+    </div>
+    <button class="arm" id="btnArm">Arm</button>
+    <div class="hint">Space or Enter arms. Arrow and Page keys move between lines, so a page-turner pedal works.</div>
+  </aside>
+</main>
+
+<dialog id="dlgSettings" aria-labelledby="hSettings">
+  <div class="dlg-head"><h2 id="hSettings">Settings</h2><button class="btn" data-close>Done</button></div>
+  <div class="dlg-body">
+    <fieldset>
+      <legend>Voice detection</legend>
+      <div>
+        <div class="meter"><div class="lvl" id="setLvl"></div><div class="thr" id="setThr"></div></div>
+        <div class="meter-label"><span id="setLvlNum" class="num">— dB</span><span>orange line = threshold</span></div>
+      </div>
+      <div class="btns">
+        <button class="btn" id="btnMic">Turn on mic</button>
+        <button class="btn" id="btnRoom">1. Record room tone (3 s)</button>
+        <button class="btn" id="btnVoice">2. Record a voice sample (5 s)</button>
+      </div>
+      <p class="note" id="calibNote">Sit where you'll read from. Record 3 seconds of silence, then read any line at performance level. The threshold is set from those two readings.</p>
+      <div class="row"><label for="sThr">Threshold</label><output id="oThr" class="num"></output>
+        <input type="range" id="sThr" min="-80" max="-10" step="1">
+        <small>Sound above this starts the clock. Breaths and chair noise should stay below it.</small></div>
+      <div class="row"><label for="sHoldLine">Silence that ends a take (line mode)</label><output id="oHoldLine" class="num"></output>
+        <input type="range" id="sHoldLine" min="0.3" max="2" step="0.05"></div>
+      <div class="row"><label for="sHoldSec">Silence that ends a take (section mode)</label><output id="oHoldSec" class="num"></output>
+        <input type="range" id="sHoldSec" min="0.8" max="5" step="0.1">
+        <small>Longer, so the pauses between lines don't end the section.</small></div>
+    </fieldset>
+    <fieldset>
+      <legend>Results</legend>
+      <div class="row"><label for="sTol">Yellow tolerance (over target)</label><output id="oTol" class="num"></output>
+        <input type="range" id="sTol" min="0" max="1" step="0.05"></div>
+    </fieldset>
+    <fieldset>
+      <legend>Flow</legend>
+      <div class="row"><label for="cAdv">Move to the next line after a take</label><input type="checkbox" id="cAdv"></div>
+      <div class="row"><label for="cArm">Re-arm automatically after moving</label><input type="checkbox" id="cArm"></div>
+    </fieldset>
+    <fieldset>
+      <legend>Display</legend>
+      <div class="row"><label for="sText">Script text size</label><output id="oText" class="num"></output>
+        <input type="range" id="sText" min="18" max="44" step="1"></div>
+      <div class="row"><label for="selTheme">Theme</label>
+        <select id="selTheme"><option value="dark">Dark</option><option value="light">Light</option><option value="system">Match tablet</option></select></div>
+    </fieldset>
+  </div>
+</dialog>
+
+<dialog id="dlgHistory" aria-labelledby="hHistory">
+  <div class="dlg-head"><h2 id="hHistory">Takes</h2><button class="btn" data-close>Done</button></div>
+  <div class="dlg-body">
+    <div class="btns">
+      <button class="btn" id="btnExport">Export spreadsheet (.csv)</button>
+      <button class="btn danger" id="btnClear">Clear all takes</button>
+      <span id="clearConfirm" hidden>Delete every take for this project? <button class="btn danger" id="btnClearYes">Delete</button> <button class="btn" id="btnClearNo">Keep</button></span>
+    </div>
+    <div class="table-wrap"><table id="histTable"></table></div>
+  </div>
+</dialog>
+
+<dialog id="dlgProjects" aria-labelledby="hProjects">
+  <div class="dlg-head"><h2 id="hProjects">Projects</h2><button class="btn" data-close>Done</button></div>
+  <div class="dlg-body">
+    <div class="btns"><button class="btn primary" id="btnOpenFile">Open project file</button></div>
+    <p class="note">Pick the .json project file from Claude. If its reference audio isn't built in, pick the mp3 at the same time.</p>
+    <div class="proj-list" id="projList"></div>
+  </div>
+</dialog>
+
+<input type="file" id="fileInput" accept=".json,application/json,audio/*,.mp3" multiple hidden>
+<div class="toast" id="toast" hidden></div>
+
+<script src="detector.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
