@@ -13,7 +13,7 @@ The real recording happens on your own equipment. The tablet's mic is only used 
 
 Everything runs in the browser. Project files (script, reference audio, timings) are opened from the
 tablet and stored only in that browser's local storage. Nothing is uploaded, and no script or audio
-lives in this repository.
+lives in this repository. The app makes no requests to other sites: fonts ship with it.
 
 ## Project files
 

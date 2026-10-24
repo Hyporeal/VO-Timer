@@ -9,10 +9,12 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@400;600&display=swap">
 <style>
+/* Fonts ship with the app (SIL Open Font License), so it makes no outside requests. */
+@font-face { font-family: "Atkinson Hyperlegible"; font-weight: 400; font-display: swap; src: url(fonts/atkinson-hyperlegible-latin-400-normal.woff2) format("woff2"); }
+@font-face { font-family: "Atkinson Hyperlegible"; font-weight: 700; font-display: swap; src: url(fonts/atkinson-hyperlegible-latin-700-normal.woff2) format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-weight: 400; font-display: swap; src: url(fonts/jetbrains-mono-latin-400-normal.woff2) format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-weight: 600; font-display: swap; src: url(fonts/jetbrains-mono-latin-600-normal.woff2) format("woff2"); }
 /* Layout: script on the left reads like a page on a copy stand; the transport
    panel on the right is the booth console. Stacks to script-over-panel in portrait. */
 :root {
@@ -271,8 +273,11 @@ td.n, th.n { text-align: right; font-family: var(--font-num); font-variant-numer
     </fieldset>
     <fieldset>
       <legend>Flow</legend>
-      <div class="row"><label for="cAdv">Move to the next line after a take</label><input type="checkbox" id="cAdv"></div>
-      <div class="row"><label for="cArm">Re-arm automatically after moving</label><input type="checkbox" id="cArm"></div>
+      <div class="row"><label for="selAdv">Move to the next line after a take</label>
+        <select id="selAdv"><option value="pass">Only when under target</option><option value="always">Always</option><option value="off">Never</option></select>
+        <small>"Only when under target" keeps you on a line until you make the time.</small></div>
+      <div class="row"><label for="cArm">Re-arm automatically after a take</label><input type="checkbox" id="cArm">
+        <small>Arms the next line, or the same line again if it didn't move on.</small></div>
     </fieldset>
     <fieldset>
       <legend>Display</legend>
@@ -281,6 +286,7 @@ td.n, th.n { text-align: right; font-family: var(--font-num); font-variant-numer
       <div class="row"><label for="selTheme">Theme</label>
         <select id="selTheme"><option value="dark">Dark</option><option value="light">Light</option><option value="system">Match tablet</option></select></div>
     </fieldset>
+    <p class="note" id="appVersion"></p>
   </div>
 </dialog>
 

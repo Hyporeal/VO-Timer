@@ -11,8 +11,11 @@
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage unavailable */ } },
   };
   const DEFAULTS = { thresholdDb: -45, holdLine: 0.7, holdSection: 2.0, tolerance: 0.25, target: 'strict', mode: 'line',
-    autoAdvance: true, autoArm: false, listenToTarget: true, textSize: 26, theme: 'dark', calibrated: false, bannerDismissed: false };
+    autoAdvance: 'always', autoArm: false, listenToTarget: true, textSize: 26, theme: 'dark', calibrated: false, bannerDismissed: false };
+  const APP_VERSION = '1.3';
   const settings = Object.assign({}, DEFAULTS, store.get('vot.settings', {}));
+  if (settings.autoAdvance === true) settings.autoAdvance = 'always';     // older boolean setting
+  if (settings.autoAdvance === false) settings.autoAdvance = 'off';
   const saveSettings = () => store.set('vot.settings', settings);
 
   const idb = {
@@ -183,11 +186,16 @@
     take = null;
     renderLines();
     renderTakeState(true);
-    if (settings.autoAdvance) {
+    const passed = pg.band === 'good';
+    const advance = settings.autoAdvance === 'always' || (settings.autoAdvance === 'pass' && passed);
+    if (settings.autoAdvance === 'pass' && !passed) $('#status').textContent = 'Over target · staying on this line';
+    if (advance) {
       setTimeout(() => {
-        move(1, true);
+        move(1);
         if (settings.autoArm) setTimeout(() => { if (!take && !playing) arm(); }, 400);
       }, 900);
+    } else if (settings.autoArm) {
+      setTimeout(() => { if (!take && !playing) arm(); }, 1300);
     }
   }
   function showResult(dur, target) {
@@ -552,7 +560,8 @@
     $('#sHoldSec').value = settings.holdSection; $('#oHoldSec').textContent = settings.holdSection.toFixed(1) + ' s';
     $('#sTol').value = settings.tolerance; $('#oTol').textContent = settings.tolerance.toFixed(2) + ' s';
     $('#sText').value = settings.textSize; $('#oText').textContent = settings.textSize + ' px';
-    $('#cAdv').checked = settings.autoAdvance; $('#cArm').checked = settings.autoArm; $('#cMin').checked = settings.listenToTarget;
+    $('#selAdv').value = settings.autoAdvance; $('#cArm').checked = settings.autoArm;
+    $('#appVersion').textContent = 'VO Timer ' + APP_VERSION; $('#cMin').checked = settings.listenToTarget;
     $('#selTheme').value = settings.theme;
     document.documentElement.style.setProperty('--script-size', settings.textSize + 'px');
     document.documentElement.dataset.theme = settings.theme;
@@ -599,7 +608,7 @@
     bindRange('#sHoldSec', 'holdSection', parseFloat);
     bindRange('#sTol', 'tolerance', parseFloat);
     bindRange('#sText', 'textSize', (v) => parseInt(v, 10));
-    $('#cAdv').onchange = (e) => { settings.autoAdvance = e.target.checked; saveSettings(); };
+    $('#selAdv').onchange = (e) => { settings.autoAdvance = e.target.value; saveSettings(); };
     $('#cArm').onchange = (e) => { settings.autoArm = e.target.checked; saveSettings(); };
     $('#cMin').onchange = (e) => { settings.listenToTarget = e.target.checked; saveSettings(); };
     $('#selTheme').onchange = (e) => { settings.theme = e.target.value; saveSettings(); syncSettingsUI(); };
