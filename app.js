@@ -12,7 +12,7 @@
   };
   const DEFAULTS = { thresholdDb: -45, holdLine: 0.7, holdSection: 2.0, tolerance: 0.25, target: 'strict', mode: 'line',
     autoAdvance: 'always', autoArm: false, listenToTarget: true, minTakePct: 40, autoPlay: false, guide: 'off', textSize: 26, theme: 'dark', calibrated: false, bannerDismissed: false };
-  const APP_VERSION = '1.5.1';
+  const APP_VERSION = '1.5.2';
   const settings = Object.assign({}, DEFAULTS, store.get('vot.settings', {}));
   if (settings.autoAdvance === true) settings.autoAdvance = 'always';     // older boolean setting
   if (settings.autoAdvance === false) settings.autoAdvance = 'off';
@@ -181,6 +181,7 @@
     const det = new VOT.Detector({ thresholdDb: settings.thresholdDb, holdMs: (mode === 'section' ? settings.holdSection : settings.holdLine) * 1000,
       minMs: settings.listenToTarget ? targetOf(item) * 1000 : 0 });
     take = { det, mode, line: curLine(), sec: curSec(), status: 'armed' };
+    hideResume();
     $('#verdict').textContent = ''; $('#verdict').className = 'verdict'; $('#parts').innerHTML = '';
     renderTakeState();
   }
@@ -272,7 +273,14 @@
     renderTakeState(true);
     const passed = pg.band === 'good';
     const advance = settings.autoAdvance === 'always' || (settings.autoAdvance === 'pass' && passed);
+    const atEnd = t.mode === 'section' ? t.sec === P.sections[P.sections.length - 1] : t.line.idx === lines.length - 1;
+    store.set('vot.done.' + P.id, atEnd);
     if (settings.autoAdvance === 'pass' && !passed) $('#status').textContent = 'Over target · staying on this line';
+    if (advance && atEnd) {
+      $('#status').textContent = 'End of script';
+      closeMic();
+      return;
+    }
     if (advance) {
       later(() => {
         move(1, { noPlay: true });
@@ -367,10 +375,17 @@
     });
     takes = store.get('vot.takes.' + P.id, {});
     selIdx = Math.min(store.get('vot.sel.' + P.id, 0), lines.length - 1);
+    const lastSec = P.sections[P.sections.length - 1];
+    const onLast = settings.mode === 'section' ? lines[selIdx].sec === lastSec : selIdx === lines.length - 1;
+    const finished = store.get('vot.done.' + P.id, false) && onLast;
+    if (finished) { selIdx = 0; store.set('vot.sel.' + P.id, 0); store.set('vot.done.' + P.id, false); }
     store.set('vot.last', P.id);
     $('#projTitle').textContent = P.title;
     refBuffer = null;
     renderScript();
+    const selEl = document.querySelector(settings.mode === 'section' ? `.sec[data-id="${curSec().id}"]` : `.line[data-id="${curLine().id}"]`);
+    if (selEl && selIdx > 0) selEl.scrollIntoView({ block: settings.mode === 'section' ? 'start' : 'center', behavior: 'instant' });
+    if (selIdx > 0) showResume(); else hideResume();
     if (rec.audio) {
       try { refBuffer = await audioCtx().decodeAudioData(await rec.audio.arrayBuffer()); }
       catch (e) { toast('Couldn’t decode the reference audio.'); }
@@ -416,9 +431,22 @@
     return `<span class="chip ${g.band}${t.est ? ' est' : ''}" title="Last take${t.est ? ' (split from a section take)' : ''}">${fmt(t.d)}</span>`;
   }
 
+  function showResume() {
+    const r = $('#resume');
+    r.querySelector('span').textContent = settings.mode === 'section' ? `Picked up at ${secName(curSec())}` : `Picked up at Line ${lineNo(curLine())}`;
+    r.hidden = false;
+    clearTimeout(showResume._t); showResume._t = setTimeout(hideResume, 8000);
+  }
+  function hideResume() { $('#resume').hidden = true; }
+  function toTop() {
+    hideResume();
+    $('#script').scrollTo({ top: 0, behavior: 'smooth' });
+    select(0, false);
+  }
+
   function renderScript() {
     const root = $('#script');
-    root.querySelectorAll('.sec, .banner').forEach((el) => el.remove());
+    root.querySelectorAll('.sec, .banner, .script-end').forEach((el) => el.remove());
     $('#empty').hidden = !!P;
     if (!P) { renderPanel(); return; }
     if (!settings.calibrated && !settings.bannerDismissed) {
@@ -446,6 +474,10 @@
       head.addEventListener('click', () => select(s.lines[0].idx));
       root.appendChild(el);
     }
+    const end = document.createElement('div'); end.className = 'script-end';
+    end.innerHTML = '<p>End of script</p><button class="btn" type="button">&#8593; Back to the top</button>';
+    end.querySelector('button').onclick = toTop;
+    root.appendChild(end);
     renderLines();
     renderSelection(false);
   }
@@ -662,8 +694,13 @@
     if (settings.mode === 'section') {
       const secs = P.sections; const si = secs.indexOf(curSec());
       const ni = Math.max(0, Math.min(secs.length - 1, si + dir));
+      if (ni === si) return;
       select(secs[ni].lines[0].idx, true, opts);
-    } else select(selIdx + dir, true, opts);
+    } else {
+      const ni = Math.max(0, Math.min(lines.length - 1, selIdx + dir));
+      if (ni === selIdx) return;
+      select(ni, true, opts);
+    }
   }
   function playSelection(section, onDone) {
     if (take) {
@@ -760,6 +797,8 @@
   function wire() {
     $('#btnArm').onclick = armButton;
     $('#btnDiscard').onclick = discard;
+    $('#resumeTop').onclick = toTop;
+    $('#script').addEventListener('pointerdown', (e) => { if (!e.target.closest('#resume')) hideResume(); });
     $('#btnPrev').onclick = () => move(-1);
     $('#btnNext').onclick = () => move(1);
     $('#btnPlay').onclick = () => playSelection(false);

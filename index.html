@@ -195,6 +195,11 @@ td.n, th.n { text-align: right; font-family: var(--font-num); font-variant-numer
 .proj-item { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; border: 1px solid var(--rule); border-radius: 10px; padding: 10px 12px; }
 .proj-item .t { flex: 1 1 220px; min-width: 0; }
 .proj-item .t small { display: block; color: var(--muted); }
+.resume { position: fixed; left: 50%; top: calc(64px + env(safe-area-inset-top, 0px)); transform: translateX(-50%); z-index: 40;
+  display: flex; align-items: center; gap: 14px; background: var(--surface-2); border: 1px solid var(--rule); border-radius: 12px;
+  padding: 8px 8px 8px 16px; box-shadow: 0 6px 24px rgba(0,0,0,.35); max-width: calc(100vw - 32px); }
+.script-end { max-width: 900px; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 24px 0 8px; color: var(--muted); border-top: 1px solid var(--rule); }
+.script-end p { margin: 0; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; }
 .toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 10px 16px; border-radius: 10px; font-weight: 700; z-index: 50; max-width: calc(100vw - 32px); }
 </style>
 </head>
@@ -339,6 +344,7 @@ td.n, th.n { text-align: right; font-family: var(--font-num); font-variant-numer
 
 <input type="file" id="fileInput" accept=".json,application/json,audio/*,.mp3" multiple hidden>
 <div class="toast" id="toast" hidden></div>
+<div class="resume" id="resume" role="status" hidden><span></span><button class="btn" id="resumeTop" type="button">Start from the top</button></div>
 
 <script src="detector.js"></script>
 <script src="app.js"></script>
