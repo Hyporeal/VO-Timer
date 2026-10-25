@@ -12,7 +12,7 @@
   };
   const DEFAULTS = { thresholdDb: -45, holdLine: 0.7, holdSection: 2.0, tolerance: 0.25, target: 'strict', mode: 'line',
     autoAdvance: 'always', autoArm: false, listenToTarget: true, minTakePct: 40, autoPlay: false, guide: 'off', textSize: 26, theme: 'dark', calibrated: false, bannerDismissed: false };
-  const APP_VERSION = '1.5.8';
+  const APP_VERSION = '1.5.9';
   const settings = Object.assign({}, DEFAULTS, store.get('vot.settings', {}));
   if (settings.autoAdvance === true) settings.autoAdvance = 'always';     // older boolean setting
   if (settings.autoAdvance === false) settings.autoAdvance = 'off';
@@ -802,7 +802,10 @@
   }
   // Settings apply live; Cancel (or back/Esc) restores what they were when Settings opened.
   let settingsSnapshot = null;
+  // Opening a panel over the script stops everything first, same as Stop.
+  function stopForPanel() { if (take || playing || pending.length) stopAll(); }
   function openSettings() {
+    stopForPanel();
     settingsSnapshot = JSON.parse(JSON.stringify(settings));
     $('#resetConfirm').hidden = true;
     syncSettingsUI(); $('#dlgSettings').showModal();
@@ -818,7 +821,7 @@
     $('#resetConfirm').hidden = true;
     applySettingsChange();
   }
-  function openProjects() { renderProjectList(); $('#dlgProjects').showModal(); }
+  function openProjects() { stopForPanel(); renderProjectList(); $('#dlgProjects').showModal(); }
   function closeDialogs() { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); }
 
   async function requestWakeLock() {
@@ -846,7 +849,7 @@
     $('#btnOpenEmpty').onclick = () => $('#fileInput').click();
     $('#btnOpenFile').onclick = () => $('#fileInput').click();
     $('#fileInput').onchange = (e) => { if (e.target.files.length) handleFiles(e.target.files); e.target.value = ''; };
-    $('#btnHistory').onclick = () => { renderHistory(); $('#clearConfirm').hidden = true; $('#dlgHistory').showModal(); };
+    $('#btnHistory').onclick = () => { stopForPanel(); renderHistory(); $('#clearConfirm').hidden = true; $('#dlgHistory').showModal(); };
     $('#btnExport').onclick = exportCsv;
     $('#btnClear').onclick = () => { $('#clearConfirm').hidden = false; };
     $('#btnClearNo').onclick = () => { $('#clearConfirm').hidden = true; };
