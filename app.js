@@ -12,7 +12,7 @@
   };
   const DEFAULTS = { thresholdDb: -45, holdLine: 0.7, holdSection: 2.0, tolerance: 0.25, target: 'strict', mode: 'line',
     autoAdvance: 'always', autoArm: false, listenToTarget: true, minTakePct: 40, autoPlay: false, guide: 'off', textSize: 26, theme: 'dark', calibrated: false, bannerDismissed: false };
-  const APP_VERSION = '1.5.6';
+  const APP_VERSION = '1.5.7';
   const settings = Object.assign({}, DEFAULTS, store.get('vot.settings', {}));
   if (settings.autoAdvance === true) settings.autoAdvance = 'always';     // older boolean setting
   if (settings.autoAdvance === false) settings.autoAdvance = 'off';
@@ -798,7 +798,24 @@
   function bindRange(id, key, parse) {
     $(id).addEventListener('input', (e) => { settings[key] = parse(e.target.value); saveSettings(); syncSettingsUI(); renderMeterThr(); if (key === 'tolerance') { renderLines(); renderPanel(); } });
   }
-  function openSettings() { syncSettingsUI(); $('#dlgSettings').showModal(); }
+  // Settings apply live; Cancel (or back/Esc) restores what they were when Settings opened.
+  let settingsSnapshot = null;
+  function openSettings() {
+    settingsSnapshot = JSON.parse(JSON.stringify(settings));
+    $('#resetConfirm').hidden = true;
+    syncSettingsUI(); $('#dlgSettings').showModal();
+  }
+  function applySettingsChange() { saveSettings(); syncSettingsUI(); renderMeterThr(); renderLines(); renderPanel(); }
+  function cancelSettings() {
+    if (settingsSnapshot) { Object.assign(settings, settingsSnapshot); settingsSnapshot = null; applySettingsChange(); }
+    $('#dlgSettings').close();
+  }
+  function restoreDefaults() {
+    const keep = { thresholdDb: settings.thresholdDb, calibrated: settings.calibrated, bannerDismissed: settings.bannerDismissed, mode: settings.mode, target: settings.target };
+    Object.assign(settings, DEFAULTS, keep);
+    $('#resetConfirm').hidden = true;
+    applySettingsChange();
+  }
   function openProjects() { renderProjectList(); $('#dlgProjects').showModal(); }
   function closeDialogs() { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); }
 
@@ -866,6 +883,12 @@
     });
     window.addEventListener('blur', () => { setTimeout(() => { if (!document.hasFocus()) releaseMic(); }, 250); });
     $('#dlgSettings').addEventListener('close', idleMic);
+    $('#dlgSettings').addEventListener('cancel', (e) => { e.preventDefault(); cancelSettings(); });
+    $('#setCancel').onclick = cancelSettings;
+    $('#setDone').onclick = () => { settingsSnapshot = null; $('#dlgSettings').close(); };
+    $('#setReset').onclick = () => { $('#resetConfirm').hidden = false; };
+    $('#resetNo').onclick = () => { $('#resetConfirm').hidden = true; };
+    $('#resetYes').onclick = restoreDefaults;
     document.addEventListener('pointerdown', requestWakeLock, { passive: true });
     document.addEventListener('keydown', requestWakeLock);
   }
