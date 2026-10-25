@@ -136,6 +136,13 @@ button { cursor: pointer; }
 .verdict.good { color: var(--good); } .verdict.close { color: var(--close); } .verdict.over { color: var(--over); }
 .parts { display: grid; gap: 4px; font-size: 14px; }
 .parts div { display: flex; justify-content: space-between; gap: 8px; }
+.line .w { --txt: var(--fg); --guide: var(--accent); }
+.line.title .w { --txt: var(--muted); }
+.line.guide-over .w { --guide: var(--over); }
+.guide-fill .w.done { color: var(--guide); }
+.guide-fill .w.part { background: linear-gradient(90deg, var(--guide) var(--p), var(--txt) var(--p)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.guide-under .w.done { background: linear-gradient(var(--guide), var(--guide)) left bottom / 100% 3px no-repeat; }
+.guide-under .w.part { background: linear-gradient(var(--guide), var(--guide)) left bottom / var(--p) 3px no-repeat; }
 .prev { font-size: 14px; color: var(--muted); border-top: 1px solid var(--rule); padding-top: 8px; }
 .prev:empty { display: none; }
 .prev b.good { color: var(--good); } .prev b.close { color: var(--close); } .prev b.over { color: var(--over); }
@@ -297,6 +304,9 @@ td.n, th.n { text-align: right; font-family: var(--font-num); font-variant-numer
         <input type="range" id="sText" min="18" max="44" step="1"></div>
       <div class="row"><label for="selTheme">Theme</label>
         <select id="selTheme"><option value="dark">Dark</option><option value="light">Light</option><option value="system">Match tablet</option></select></div>
+      <div class="row"><label for="selGuide">Pace guide on the script</label>
+        <select id="selGuide"><option value="off">Off</option><option value="underline">Underline</option><option value="fill">Fill the letters</option></select>
+        <small>While timing, shows roughly where you should be in the line at the target pace. It turns red once you're past the target.</small></div>
     </fieldset>
     <fieldset>
       <legend>Keys and pedal</legend>

@@ -11,8 +11,8 @@
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage unavailable */ } },
   };
   const DEFAULTS = { thresholdDb: -45, holdLine: 0.7, holdSection: 2.0, tolerance: 0.25, target: 'strict', mode: 'line',
-    autoAdvance: 'always', autoArm: false, listenToTarget: true, minTakePct: 40, autoPlay: false, textSize: 26, theme: 'dark', calibrated: false, bannerDismissed: false };
-  const APP_VERSION = '1.4.7';
+    autoAdvance: 'always', autoArm: false, listenToTarget: true, minTakePct: 40, autoPlay: false, guide: 'off', textSize: 26, theme: 'dark', calibrated: false, bannerDismissed: false };
+  const APP_VERSION = '1.5';
   const settings = Object.assign({}, DEFAULTS, store.get('vot.settings', {}));
   if (settings.autoAdvance === true) settings.autoAdvance = 'always';     // older boolean setting
   if (settings.autoAdvance === false) settings.autoAdvance = 'off';
@@ -428,7 +428,11 @@
       for (const ln of s.lines) {
         const row = document.createElement('div'); row.className = 'line' + (ln.title ? ' title' : ''); row.dataset.id = ln.id;
         row.innerHTML = '<div class="txt"></div><div class="meta"></div>';
-        row.querySelector('.txt').textContent = ln.text;
+        const txt = row.querySelector('.txt'); ln._w = []; ln._W = 0;
+        for (const tok of ln.text.match(/\S+\s*/g) || []) {
+          const sp = document.createElement('span'); sp.className = 'w'; sp.textContent = tok; txt.appendChild(sp);
+          const w = wordWeight(tok.trim()); ln._w.push({ el: sp, w }); ln._W += w;
+        }
         row.addEventListener('click', () => select(ln.idx));
         el.appendChild(row);
       }
@@ -548,6 +552,42 @@
     $('#meterThr').style.left = pos + '%'; $('#setThr').style.left = pos + '%';
   }
 
+  // ---------- pace guide ----------
+  function wordWeight(w) {
+    const bare = w.replace(/[^A-Za-z0-9]/g, '');
+    let n;
+    if (/^[A-Z]{2,5}s?$/.test(bare)) n = bare.replace(/s$/, '').length;          // AI, QMS, SOPs
+    else { const c = bare.toLowerCase(); n = (c.match(/[aeiouy]+/g) || []).length; if (/[^aeiou]e$/.test(c) && n > 1) n--; }
+    n = Math.max(1, n);
+    if (/[,;:]$/.test(w)) n += 0.4;
+    if (/(\.\.\.|…|—|[.!?])$/.test(w)) n += 0.6;
+    return n;
+  }
+  let guided = null;   // {key, rows, spans}
+  function clearGuide() {
+    if (!guided) return;
+    for (const s of guided.spans) { s.el.classList.remove('done', 'part'); s.el.style.removeProperty('--p'); s.state = ''; }
+    for (const r of guided.rows) r.classList.remove('guide-over');
+    guided = null;
+  }
+  function updateGuide(frac) {
+    const lns = take.mode === 'section' ? take.sec.lines : [take.line];
+    const key = lns.map((l) => l.id).join(',');
+    if (!guided || guided.key !== key) {
+      clearGuide();
+      const spans = []; let cum = 0;
+      for (const l of lns) for (const s of l._w || []) { spans.push({ el: s.el, a: cum, b: cum + s.w, state: '' }); cum += s.w; }
+      guided = { key, total: cum, spans, rows: lns.map((l) => document.querySelector(`.line[data-id="${l.id}"]`)).filter(Boolean) };
+    }
+    const pos = Math.min(1, frac) * guided.total;
+    for (const s of guided.spans) {
+      const st = pos >= s.b ? 'done' : pos > s.a ? 'part' : '';
+      if (st !== s.state) { s.el.classList.toggle('done', st === 'done'); s.el.classList.toggle('part', st === 'part'); s.state = st; }
+      if (st === 'part') s.el.style.setProperty('--p', (((pos - s.a) / (s.b - s.a)) * 100).toFixed(1) + '%');
+    }
+    for (const r of guided.rows) r.classList.toggle('guide-over', frac > 1);
+  }
+
   function frame() {
     const pct = Math.max(0, Math.min(100, ((lastDb + 80) / 80) * 100));
     const hot = lastDb >= settings.thresholdDb;
@@ -563,6 +603,10 @@
       const waitingForTarget = d.o.minMs && (d.now - d.start) < tgt;
       $('#status').textContent = !pausing ? 'Timing' : waitingForTarget ? `Paused · listening until ${fmt(tgt)} s · tap to finish` : 'Paused · tap to finish';
     }
+    if (settings.guide !== 'off' && take) {
+      if (isLive()) updateGuide((take.det.now - take.det.start) / targetOf(take.mode === 'section' ? take.sec : take.line));
+      else updateGuide(0);
+    } else clearGuide();
     requestAnimationFrame(frame);
   }
 
@@ -680,7 +724,8 @@
     $('#selAdv').value = settings.autoAdvance; $('#cArm').checked = settings.autoArm; $('#cPlay').checked = settings.autoPlay;
     $('#appVersion').textContent = 'VO Timer ' + APP_VERSION; $('#cMin').checked = settings.listenToTarget;
     $('#sMinTake').value = settings.minTakePct; $('#oMinTake').textContent = settings.minTakePct ? settings.minTakePct + '% of target' : 'Off';
-    $('#selTheme').value = settings.theme;
+    $('#selTheme').value = settings.theme; $('#selGuide').value = settings.guide;
+    $('#script').classList.toggle('guide-fill', settings.guide === 'fill'); $('#script').classList.toggle('guide-under', settings.guide === 'underline');
     document.documentElement.style.setProperty('--script-size', settings.textSize + 'px');
     document.documentElement.dataset.theme = settings.theme;
   }
@@ -733,6 +778,7 @@
     $('#cPlay').onchange = (e) => { settings.autoPlay = e.target.checked; saveSettings(); };
     $('#cMin').onchange = (e) => { settings.listenToTarget = e.target.checked; saveSettings(); };
     $('#selTheme').onchange = (e) => { settings.theme = e.target.value; saveSettings(); syncSettingsUI(); };
+    $('#selGuide').onchange = (e) => { settings.guide = e.target.value; saveSettings(); syncSettingsUI(); };
 
     document.addEventListener('keydown', (e) => {
       if (document.querySelector('dialog[open]')) return;
