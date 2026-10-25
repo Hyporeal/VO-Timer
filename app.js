@@ -12,7 +12,7 @@
   };
   const DEFAULTS = { thresholdDb: -45, holdLine: 0.7, holdSection: 2.0, tolerance: 0.25, target: 'strict', mode: 'line',
     autoAdvance: 'always', autoArm: false, listenToTarget: true, minTakePct: 40, autoPlay: false, textSize: 26, theme: 'dark', calibrated: false, bannerDismissed: false };
-  const APP_VERSION = '1.4.5';
+  const APP_VERSION = '1.4.6';
   const settings = Object.assign({}, DEFAULTS, store.get('vot.settings', {}));
   if (settings.autoAdvance === true) settings.autoAdvance = 'always';     // older boolean setting
   if (settings.autoAdvance === false) settings.autoAdvance = 'off';
@@ -574,7 +574,13 @@
       // Tapping the line (or section) you're armed on or reading does nothing.
       const target = lines[Math.max(0, Math.min(lines.length - 1, idx))];
       const same = take.mode === 'section' ? target.sec === take.sec : target === take.line;
-      if (same) return;
+      if (same) {
+        // With "play each line" on, tapping the armed line replays it, then arms again. During a take it still does nothing.
+        if (!(settings.autoPlay && refBuffer && take.status === 'armed')) return;
+        take = null; renderTakeState(); clearPending(); stopPlayback();
+        playSelection(false, () => { if (!take && !playing) arm(); });
+        return;
+      }
       // Tapping a different one cancels any take in progress (nothing saved) and goes there;
       // with auto re-arm on it stays armed on the new line, keeping the mic open.
       keepArmed = settings.autoArm;
