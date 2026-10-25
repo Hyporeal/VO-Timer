@@ -11,8 +11,8 @@
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage unavailable */ } },
   };
   const DEFAULTS = { thresholdDb: -45, holdLine: 0.7, holdSection: 2.0, tolerance: 0.25, target: 'strict', mode: 'line',
-    autoAdvance: 'always', autoArm: false, listenToTarget: true, minTakePct: 40, textSize: 26, theme: 'dark', calibrated: false, bannerDismissed: false };
-  const APP_VERSION = '1.4.4';
+    autoAdvance: 'always', autoArm: false, listenToTarget: true, minTakePct: 40, autoPlay: false, textSize: 26, theme: 'dark', calibrated: false, bannerDismissed: false };
+  const APP_VERSION = '1.4.5';
   const settings = Object.assign({}, DEFAULTS, store.get('vot.settings', {}));
   if (settings.autoAdvance === true) settings.autoAdvance = 'always';     // older boolean setting
   if (settings.autoAdvance === false) settings.autoAdvance = 'off';
@@ -146,7 +146,7 @@
     document.querySelectorAll('.line.playing').forEach((el) => el.classList.remove('playing'));
     playing = null; renderButtons();
   }
-  async function playRange(start, end, ids) {
+  async function playRange(start, end, ids, onDone) {
     if (!refBuffer) { toast('This project has no reference audio loaded.'); return; }
     if (isLive()) return;
     cancelTake();
@@ -157,7 +157,7 @@
     src.start(0, s, d);
     playing = { src, ids };
     ids.forEach((id) => { const el = document.querySelector(`.line[data-id="${id}"]`); if (el) el.classList.add('playing'); });
-    src.onended = () => { if (playing && playing.src === src) stopPlayback(); };
+    src.onended = () => { if (playing && playing.src === src) { stopPlayback(); if (onDone) onDone(); } };
     renderButtons();
   }
 
@@ -207,7 +207,7 @@
     }
     store.set('vot.takes.' + P.id, takes);
     take = null;
-    select(ls.selIdx);
+    select(ls.selIdx, true, { noPlay: true });
     $('#parts').innerHTML = '';
     $('#prevResult').textContent = `Previous take discarded (${ls.label}).`;
     renderLines(); renderTakeState();
@@ -268,8 +268,8 @@
     if (settings.autoAdvance === 'pass' && !passed) $('#status').textContent = 'Over target · staying on this line';
     if (advance) {
       later(() => {
-        move(1);
-        if (settings.autoArm) later(() => { if (!take && !playing) arm(); }, 400);
+        move(1, { noPlay: true });
+        afterMove(settings.autoArm, 400);
       }, 900);
     } else if (settings.autoArm) {
       later(() => { if (!take && !playing) arm(); }, 1300);
@@ -567,7 +567,7 @@
   }
 
   // ---------- navigation ----------
-  function select(idx, scroll = true) {
+  function select(idx, scroll = true, opts = {}) {
     if (!P) return;
     let keepArmed = false;
     if (take) {
@@ -587,22 +587,29 @@
     selIdx = Math.max(0, Math.min(lines.length - 1, idx));
     store.set('vot.sel.' + P.id, selIdx);
     renderSelection(scroll);
-    if (keepArmed) arm();
+    if (keepArmed) afterMove(true, 0);
+    else if (!opts.noPlay) afterMove(false, 0);
   }
-  function move(dir) {
+  // After moving to a line: play it if "play each line" is on, then arm if asked (arming waits for playback to finish).
+  function afterMove(shouldArm, delay) {
+    const armIt = () => { if (!take && !playing) arm(); };
+    if (settings.autoPlay && refBuffer) playSelection(false, shouldArm ? armIt : null);
+    else if (shouldArm) { if (delay) later(armIt, delay); else armIt(); }
+  }
+  function move(dir, opts = {}) {
     if (!P) return;
     if (settings.mode === 'section') {
       const secs = P.sections; const si = secs.indexOf(curSec());
       const ni = Math.max(0, Math.min(secs.length - 1, si + dir));
-      select(secs[ni].lines[0].idx);
-    } else select(selIdx + dir);
+      select(secs[ni].lines[0].idx, true, opts);
+    } else select(selIdx + dir, true, opts);
   }
-  function playSelection(section) {
+  function playSelection(section, onDone) {
     if (isLive()) return;
     if (playing) { stopPlayback(); return; }
     const ln = curLine(); if (!ln) return;
-    if (section || settings.mode === 'section') playRange(ln.sec.start, ln.sec.end, ln.sec.lines.map((l) => l.id));
-    else playRange(ln.start, ln.end, [ln.id]);
+    if (section || settings.mode === 'section') playRange(ln.sec.start, ln.sec.end, ln.sec.lines.map((l) => l.id), onDone);
+    else playRange(ln.start, ln.end, [ln.id], onDone);
   }
 
   // ---------- history ----------
@@ -658,7 +665,7 @@
     $('#sHoldSec').value = settings.holdSection; $('#oHoldSec').textContent = settings.holdSection.toFixed(1) + ' s';
     $('#sTol').value = settings.tolerance; $('#oTol').textContent = settings.tolerance.toFixed(2) + ' s';
     $('#sText').value = settings.textSize; $('#oText').textContent = settings.textSize + ' px';
-    $('#selAdv').value = settings.autoAdvance; $('#cArm').checked = settings.autoArm;
+    $('#selAdv').value = settings.autoAdvance; $('#cArm').checked = settings.autoArm; $('#cPlay').checked = settings.autoPlay;
     $('#appVersion').textContent = 'VO Timer ' + APP_VERSION; $('#cMin').checked = settings.listenToTarget;
     $('#sMinTake').value = settings.minTakePct; $('#oMinTake').textContent = settings.minTakePct ? settings.minTakePct + '% of target' : 'Off';
     $('#selTheme').value = settings.theme;
@@ -711,6 +718,7 @@
     bindRange('#sMinTake', 'minTakePct', (v) => parseInt(v, 10));
     $('#selAdv').onchange = (e) => { settings.autoAdvance = e.target.value; saveSettings(); };
     $('#cArm').onchange = (e) => { settings.autoArm = e.target.checked; saveSettings(); };
+    $('#cPlay').onchange = (e) => { settings.autoPlay = e.target.checked; saveSettings(); };
     $('#cMin').onchange = (e) => { settings.listenToTarget = e.target.checked; saveSettings(); };
     $('#selTheme').onchange = (e) => { settings.theme = e.target.value; saveSettings(); syncSettingsUI(); };
 
