@@ -12,7 +12,7 @@
   };
   const DEFAULTS = { thresholdDb: -45, holdLine: 0.7, holdSection: 2.0, tolerance: 0.25, target: 'strict', mode: 'line',
     autoAdvance: 'always', autoArm: false, listenToTarget: true, minTakePct: 40, textSize: 26, theme: 'dark', calibrated: false, bannerDismissed: false };
-  const APP_VERSION = '1.4.3';
+  const APP_VERSION = '1.4.4';
   const settings = Object.assign({}, DEFAULTS, store.get('vot.settings', {}));
   if (settings.autoAdvance === true) settings.autoAdvance = 'always';     // older boolean setting
   if (settings.autoAdvance === false) settings.autoAdvance = 'off';
@@ -569,20 +569,25 @@
   // ---------- navigation ----------
   function select(idx, scroll = true) {
     if (!P) return;
-    if (isLive()) {
-      // Tapping the line (or section) being read does nothing; tapping a different one cancels the take and goes there.
+    let keepArmed = false;
+    if (take) {
+      // Tapping the line (or section) you're armed on or reading does nothing.
       const target = lines[Math.max(0, Math.min(lines.length - 1, idx))];
       const same = take.mode === 'section' ? target.sec === take.sec : target === take.line;
       if (same) return;
-      take = null; renderTakeState();
-      $('#status').textContent = 'Take cancelled';
+      // Tapping a different one cancels any take in progress (nothing saved) and goes there;
+      // with auto re-arm on it stays armed on the new line, keeping the mic open.
+      keepArmed = settings.autoArm;
+      const wasLive = isLive();
+      if (keepArmed) { take = null; renderTakeState(); } else cancelTake();
+      if (wasLive) $('#status').textContent = 'Take cancelled';
     }
     clearPending();
-    if (take) cancelTake();
     stopPlayback();
     selIdx = Math.max(0, Math.min(lines.length - 1, idx));
     store.set('vot.sel.' + P.id, selIdx);
     renderSelection(scroll);
+    if (keepArmed) arm();
   }
   function move(dir) {
     if (!P) return;
