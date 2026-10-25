@@ -12,7 +12,7 @@
   };
   const DEFAULTS = { thresholdDb: -45, holdLine: 0.7, holdSection: 2.0, tolerance: 0.25, target: 'strict', mode: 'line',
     autoAdvance: 'always', autoArm: false, listenToTarget: true, minTakePct: 40, autoPlay: false, guide: 'off', textSize: 26, theme: 'dark', calibrated: false, bannerDismissed: false };
-  const APP_VERSION = '1.5';
+  const APP_VERSION = '1.5.1';
   const settings = Object.assign({}, DEFAULTS, store.get('vot.settings', {}));
   if (settings.autoAdvance === true) settings.autoAdvance = 'always';     // older boolean setting
   if (settings.autoAdvance === false) settings.autoAdvance = 'off';
@@ -74,6 +74,13 @@
   function lineNo(line) { return line.idx + 1; }
   const isLive = () => !!take && take.status === 'live';
   function clearPending() { pending.forEach(clearTimeout); pending = []; }
+  // Playback "ends" before the speaker has finished sounding it; wait out the output delay before arming.
+  function afterSpeaker(fn) {
+    return () => {
+      const lat = ctx ? (ctx.outputLatency || 0) + (ctx.baseLatency || 0) : 0;
+      later(fn, Math.round(Math.min(0.5, Math.max(0.15, lat + 0.05)) * 1000));
+    };
+  }
   function later(fn, ms) { pending.push(setTimeout(fn, ms)); }
 
   // ---------- audio ----------
@@ -146,14 +153,14 @@
     document.querySelectorAll('.line.playing').forEach((el) => el.classList.remove('playing'));
     playing = null; renderButtons();
   }
-  async function playRange(start, end, ids, onDone) {
+  async function playRange(start, end, ids, onDone, padBefore = 0.08, padAfter = 0.3) {
     if (!refBuffer) { toast('This project has no reference audio loaded.'); return; }
     if (isLive()) return;
     cancelTake();
     stopPlayback();
     const c = audioCtx(); await c.resume();
     const src = c.createBufferSource(); src.buffer = refBuffer; src.connect(c.destination);
-    const s = Math.max(0, start - 0.08); const d = Math.max(0.1, end - s + 0.3);
+    const s = Math.max(0, start - padBefore); const d = Math.max(0.1, end - s + padAfter);
     src.start(0, s, d);
     playing = { src, ids };
     ids.forEach((id) => { const el = document.querySelector(`.line[data-id="${id}"]`); if (el) el.classList.add('playing'); });
@@ -593,6 +600,10 @@
     const hot = lastDb >= settings.thresholdDb;
     for (const id of ['#meterLvl', '#setLvl']) { const el = $(id); el.style.width = pct + '%'; el.classList.toggle('hot', hot); }
     if (micStream) $('#setLvlNum').textContent = lastDb.toFixed(0) + ' dB';
+    if (take && take.status === 'armed') {
+      const ready = take.det.ready;
+      if (take._ready !== ready) { take._ready = ready; $('#status').textContent = ready ? 'Armed. Start reading when ready' : 'Armed · waiting for quiet…'; }
+    }
     if (isLive()) {
       const d = take.det; const tgt = targetOf(take.mode === 'section' ? take.sec : take.line);
       const pausing = d.now - d.lastSound > 0.25;
@@ -622,7 +633,7 @@
         // With "play each line" on, tapping the armed line replays it, then arms again. During a take it still does nothing.
         if (!(settings.autoPlay && refBuffer && take.status === 'armed')) return;
         take = null; renderTakeState(); clearPending(); stopPlayback();
-        playSelection(false, () => { if (!take && !playing) arm(); });
+        playSelection(false, afterSpeaker(() => { if (!take && !playing) arm(); }));
         return;
       }
       // Tapping a different one cancels any take in progress (nothing saved) and goes there;
@@ -643,7 +654,7 @@
   // After moving to a line: play it if "play each line" is on, then arm if asked (arming waits for playback to finish).
   function afterMove(shouldArm, delay) {
     const armIt = () => { if (!take && !playing) arm(); };
-    if (settings.autoPlay && refBuffer) playSelection(false, shouldArm ? armIt : null);
+    if (settings.autoPlay && refBuffer) playSelection(false, shouldArm ? afterSpeaker(armIt) : null);
     else if (shouldArm) { if (delay) later(armIt, delay); else armIt(); }
   }
   function move(dir, opts = {}) {
@@ -660,12 +671,16 @@
       const wasLive = isLive();
       take = null; renderTakeState(); clearPending();
       if (wasLive) $('#status').textContent = 'Take discarded';
-      if (!onDone) onDone = () => { if (!take && !playing) arm(); };
+      if (!onDone) onDone = afterSpeaker(() => { if (!take && !playing) arm(); });
     }
     if (playing) { stopPlayback(); return; }
     const ln = curLine(); if (!ln) return;
-    if (section || settings.mode === 'section') playRange(ln.sec.start, ln.sec.end, ln.sec.lines.map((l) => l.id), onDone);
-    else playRange(ln.start, ln.end, [ln.id], onDone);
+    // Pad around the line only into silence, never into the neighbouring line's audio.
+    const prevEnd = (item) => { const i = lines.indexOf(item.lines ? item.lines[0] : item); return i > 0 ? lines[i - 1].end : 0; };
+    const pads = (item) => [Math.max(0, Math.min(0.08, item.start - prevEnd(item) - 0.02)), Math.max(0.05, Math.min(0.3, (item.roomAfter || 0) - 0.02))];
+    const item = section || settings.mode === 'section' ? ln.sec : ln;
+    const [pb, pa] = pads(item);
+    playRange(item.start, item.end, item.lines ? item.lines.map((l) => l.id) : [ln.id], onDone, pb, pa);
   }
 
   // ---------- history ----------

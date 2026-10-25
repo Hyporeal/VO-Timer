@@ -14,16 +14,19 @@
      * @param {number} o.resumeMs      sound after a gap must last this long to count as speech again
      * @param {number} o.holdMs        silence this long ends the take
      * @param {number} o.pauseMinMs    gaps at least this long are recorded as pauses
+     * @param {number} o.quietMs       after arming, the room must be quiet this long before listening starts
      * @param {number} o.minMs         never stop before this much time since the start (pauses before it can't end the take)
      * @param {number} o.maxMs         safety stop
      */
     constructor(o) {
-      this.o = Object.assign({ thresholdDb: -45, releaseDb: 4, attackMs: 60, resumeMs: 40, holdMs: 700, pauseMinMs: 120, minMs: 0, maxMs: 120000 }, o || {});
+      this.o = Object.assign({ thresholdDb: -45, releaseDb: 4, attackMs: 60, resumeMs: 40, holdMs: 700, pauseMinMs: 120, quietMs: 200, minMs: 0, maxMs: 120000 }, o || {});
       this.reset();
     }
 
     reset() {
       this.state = 'armed';      // armed -> speaking -> done
+      this.ready = !(this.o.quietMs > 0);   // armed and the room has been quiet long enough to listen
+      this.quietRun = 0;
       this.runStart = null;      // first frame of the current above-threshold run
       this.runLen = 0;
       this.start = null;
@@ -43,6 +46,12 @@
       if (this.state === 'done') return null;
 
       if (this.state === 'armed') {
+        // Wait for the room to be quiet first (a speaker tail or echo can't start the clock).
+        if (!this.ready) {
+          if (db < o.thresholdDb) { this.quietRun += frameSec; if (this.quietRun * 1000 >= o.quietMs) this.ready = true; }
+          else this.quietRun = 0;
+          return null;
+        }
         if (db >= o.thresholdDb) {
           if (this.runStart === null) this.runStart = t;
           this.runLen += frameSec;
