@@ -157,10 +157,8 @@ button { cursor: pointer; }
 .transport.one-play { grid-template-columns: auto 1fr auto; }
 dialog input[type="range"] { touch-action: pan-y; }
 .reset-row { align-items: center; }
-.adv { border: 1px solid var(--rule); border-radius: 10px; padding: 0 14px; }
-.adv summary { cursor: pointer; padding: 12px 0; color: var(--muted); font-size: 13px; letter-spacing: .06em; text-transform: uppercase; }
-.adv[open] summary { border-bottom: 1px solid var(--rule); margin-bottom: 12px; }
-.adv-body { display: grid; gap: 12px; padding-bottom: 14px; }
+.size-preview { grid-column: 1 / -1; background: var(--bg); border: 1px solid var(--rule); border-radius: 8px; padding: 8px 12px;
+  font-size: var(--script-size); line-height: 1.35; overflow-wrap: anywhere; }
 .arm-row { display: grid; grid-template-columns: minmax(0, 1fr) 96px; gap: 8px; }
 .arm {
   width: 100%; height: 88px; padding: 0 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; border-radius: 14px; border: 2px solid var(--accent);
@@ -315,16 +313,16 @@ td.n, th.n { text-align: right; font-family: var(--font-num); font-variant-numer
     <fieldset>
       <legend>Display</legend>
       <div class="row"><label for="sText">Script text size</label><output id="oText" class="num"></output>
-        <input type="range" id="sText" min="18" max="44" step="1"></div>
+        <input type="range" id="sText" min="14" max="44" step="1">
+        <div class="size-preview" id="sizePreview" aria-hidden="true"></div></div>
       <div class="row"><label for="selTheme">Theme</label>
         <select id="selTheme"><option value="dark">Dark</option><option value="light">Light</option><option value="system">Match tablet</option></select></div>
       <div class="row"><label for="selGuide">Pace guide on the script</label>
         <select id="selGuide"><option value="off">Off</option><option value="underline">Underline</option><option value="fill">Fill the letters</option></select>
         <small>While timing, shows roughly where you should be in the line at the target pace. It turns red once you're past the target.</small></div>
     </fieldset>
-    <details class="adv">
-      <summary>Advanced</summary>
-      <div class="adv-body">
+    <fieldset>
+      <legend>Advanced</legend>
       <div class="row"><label for="sHoldLine">Silence that ends a take (line mode)</label><output id="oHoldLine" class="num"></output>
         <input type="range" id="sHoldLine" min="0.3" max="2" step="0.05"></div>
       <div class="row"><label for="sHoldSec">Silence that ends a take (section mode)</label><output id="oHoldSec" class="num"></output>
@@ -332,12 +330,11 @@ td.n, th.n { text-align: right; font-family: var(--font-num); font-variant-numer
         <small>Longer, so the pauses between lines don't end the section.</small></div>
       <div class="row"><label for="sMinTake">Ignore sounds shorter than</label><output id="oMinTake" class="num"></output>
         <input type="range" id="sMinTake" min="0" max="80" step="5">
-        <small>A cough or an "okay" between takes won't count as a take. You stay armed. Tapping to finish always keeps the take.</small></div>
+        <small>A cough or an "okay" between takes won't count as a take; you stay armed. Measured against the line's own length (the strict target), even in Window mode. Tapping to finish always keeps the take.</small></div>
       <div class="row"><label for="sTol">Yellow tolerance (over target)</label><output id="oTol" class="num"></output>
         <input type="range" id="sTol" min="0" max="1" step="0.05">
         <small>How far over the target a take can go and still show yellow instead of red.</small></div>
-      </div>
-    </details>
+    </fieldset>
     <fieldset>
       <legend>Keys and pedal</legend>
       <p class="note">Space or Enter arms, and finishes a take early (keeping it). Backspace discards. Esc stops everything. Arrow and Page keys move between lines, so a page-turner pedal works.</p>

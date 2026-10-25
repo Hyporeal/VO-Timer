@@ -12,7 +12,7 @@
   };
   const DEFAULTS = { thresholdDb: -45, holdLine: 0.7, holdSection: 2.0, tolerance: 0.25, target: 'strict', mode: 'line',
     autoAdvance: 'always', autoArm: false, listenToTarget: true, minTakePct: 40, autoPlay: false, guide: 'off', textSize: 26, theme: 'dark', calibrated: false, bannerDismissed: false };
-  const APP_VERSION = '1.5.7';
+  const APP_VERSION = '1.5.8';
   const settings = Object.assign({}, DEFAULTS, store.get('vot.settings', {}));
   if (settings.autoAdvance === true) settings.autoAdvance = 'always';     // older boolean setting
   if (settings.autoAdvance === false) settings.autoAdvance = 'off';
@@ -245,7 +245,8 @@
     const tol = settings.tolerance;
     const target = targetOf(t.mode === 'line' ? t.line : t.sec);
     // An automatic stop far shorter than the target is a cough or an "okay", not a take: ignore it and stay armed.
-    if (!manual && settings.minTakePct > 0 && dur < target * settings.minTakePct / 100) {
+    const strictTarget = (t.mode === 'line' ? t.line : t.sec).dur;   // the line's own length, never the window
+    if (!manual && settings.minTakePct > 0 && dur < strictTarget * settings.minTakePct / 100) {
       take = null;
       arm().then(() => {
         $('#verdict').textContent = `Ignored a ${fmt(dur)} s sound (too short)`;
@@ -789,7 +790,8 @@
     $('#sText').value = settings.textSize; $('#oText').textContent = settings.textSize + ' px';
     $('#selAdv').value = settings.autoAdvance; $('#cArm').checked = settings.autoArm; $('#cPlay').checked = settings.autoPlay;
     $('#appVersion').textContent = 'VO Timer ' + APP_VERSION; $('#cMin').checked = settings.listenToTarget;
-    $('#sMinTake').value = settings.minTakePct; $('#oMinTake').textContent = settings.minTakePct ? settings.minTakePct + '% of target' : 'Off';
+    $('#sMinTake').value = settings.minTakePct; $('#oMinTake').textContent = settings.minTakePct ? settings.minTakePct + '% of the line' : 'Off';
+    $('#sizePreview').textContent = curLine() ? curLine().text : 'Your script will look like this at this size.';
     $('#selTheme').value = settings.theme; $('#selGuide').value = settings.guide;
     $('#script').classList.toggle('guide-fill', settings.guide === 'fill'); $('#script').classList.toggle('guide-under', settings.guide === 'underline');
     document.documentElement.style.setProperty('--script-size', settings.textSize + 'px');
