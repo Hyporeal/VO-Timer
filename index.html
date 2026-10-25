@@ -61,7 +61,7 @@ button { cursor: pointer; }
   border-bottom: 1px solid var(--rule); background: var(--surface);
 }
 .brand { font-weight: 700; letter-spacing: .02em; }
-.proj { color: var(--muted); flex: 1 1 200px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.proj { color: var(--muted); flex: 1 1 0; min-width: 60px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; }
 .seg button { border: 0; background: transparent; padding: 8px 14px; color: var(--muted); }
 .seg button[aria-pressed="true"] { background: var(--surface-2); color: var(--fg); font-weight: 700; }
@@ -80,8 +80,12 @@ button { cursor: pointer; }
 }
 @media (max-width: 860px), (orientation: portrait) and (max-width: 1100px) {
   .layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
-  .panel { border-left: 0; border-top: 1px solid var(--rule); display: grid; grid-template-columns: 1fr 1fr; align-items: start; gap: 12px 16px; max-height: 48vh; }
-  .panel .readout { grid-row: span 3; }
+  .panel { border-left: 0; border-top: 1px solid var(--rule); display: grid; grid-template-columns: 1fr 1fr; align-items: start; gap: 12px 16px; max-height: 48vh;
+    grid-template-areas: "sel readout" "meter readout" "transport readout" "arm discard" "arm mode"; }
+  .panel .p-sel { grid-area: sel; } .panel .p-meter { grid-area: meter; } .panel .transport { grid-area: transport; }
+  .panel .readout { grid-area: readout; } .panel .arm { grid-area: arm; align-self: stretch; }
+  .panel .discard { grid-area: discard; } .panel .mode-seg { grid-area: mode; }
+  .bar { gap: 8px; } .bar .btn, .bar .seg button { padding: 8px 11px; }
   .script { padding-bottom: 30vh; }
 }
 
@@ -153,6 +157,8 @@ button { cursor: pointer; }
 @media (prefers-reduced-motion: reduce) { .arm.on { animation: none; } .script { scroll-behavior: auto; } }
 .hint { color: var(--muted); font-size: 13px; }
 .discard { background: transparent; color: var(--muted); padding: 10px 14px; }
+.mode-seg { display: grid; grid-template-columns: 1fr 1fr; }
+.mode-seg button { padding: 13px 10px; font-size: 17px; }
 
 /* Empty state */
 .empty { max-width: 640px; margin: 8vh auto 0; display: grid; gap: 14px; }
@@ -189,10 +195,6 @@ td.n, th.n { text-align: right; font-family: var(--font-num); font-variant-numer
 <header class="bar">
   <span class="brand">VO Timer</span>
   <span class="proj" id="projTitle">No project loaded</span>
-  <div class="seg" role="group" aria-label="Timing mode">
-    <button id="modeLine" aria-pressed="true">Line</button>
-    <button id="modeSection" aria-pressed="false">Section</button>
-  </div>
   <div class="seg" role="group" aria-label="Target type">
     <button id="tgtStrict" aria-pressed="true" title="Target is the length of the reference read">Strict</button>
     <button id="tgtWindow" aria-pressed="false" title="Target is the reference read plus the room before the next cue">Window</button>
@@ -213,7 +215,7 @@ td.n, th.n { text-align: right; font-family: var(--font-num); font-variant-numer
   </section>
 
   <aside class="panel" id="panel" aria-label="Timing controls">
-    <div>
+    <div class="p-sel">
       <div class="sel-label" id="selLabel">Nothing selected</div>
       <div class="sel-text" id="selText"></div>
     </div>
@@ -226,7 +228,7 @@ td.n, th.n { text-align: right; font-family: var(--font-num); font-variant-numer
       <div class="parts" id="parts"></div>
       <div class="prev" id="prevResult"></div>
     </div>
-    <div>
+    <div class="p-meter">
       <div class="meter" title="Mic level"><div class="lvl" id="meterLvl"></div><div class="thr" id="meterThr"></div></div>
       <div class="meter-label"><span>Mic level</span><span id="micState">Mic off</span></div>
     </div>
@@ -237,8 +239,11 @@ td.n, th.n { text-align: right; font-family: var(--font-num); font-variant-numer
       <button class="btn" id="btnNext" aria-label="Next">&#9654;</button>
     </div>
     <button class="arm" id="btnArm">Arm</button>
+    <div class="seg mode-seg" role="group" aria-label="Timing mode">
+      <button id="modeLine" aria-pressed="true">Line</button>
+      <button id="modeSection" aria-pressed="false">Section</button>
+    </div>
     <button class="btn discard" id="btnDiscard" hidden>Discard last take</button>
-    <div class="hint">Space or Enter arms, and finishes a take early. Esc discards. Arrow and Page keys move between lines, so a page-turner pedal works.</div>
   </aside>
 </main>
 
@@ -290,6 +295,10 @@ td.n, th.n { text-align: right; font-family: var(--font-num); font-variant-numer
         <input type="range" id="sText" min="18" max="44" step="1"></div>
       <div class="row"><label for="selTheme">Theme</label>
         <select id="selTheme"><option value="dark">Dark</option><option value="light">Light</option><option value="system">Match tablet</option></select></div>
+    </fieldset>
+    <fieldset>
+      <legend>Keys and pedal</legend>
+      <p class="note">Space or Enter arms, and finishes a take early. Esc discards. Arrow and Page keys move between lines, so a page-turner pedal works.</p>
     </fieldset>
     <p class="note" id="appVersion"></p>
   </div>
