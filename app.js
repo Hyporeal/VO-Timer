@@ -12,7 +12,7 @@
   };
   const DEFAULTS = { thresholdDb: -45, holdLine: 0.7, holdSection: 2.0, tolerance: 0.25, target: 'strict', mode: 'line',
     autoAdvance: 'always', autoArm: false, listenToTarget: true, minTakePct: 40, textSize: 26, theme: 'dark', calibrated: false, bannerDismissed: false };
-  const APP_VERSION = '1.4.2';
+  const APP_VERSION = '1.4.3';
   const settings = Object.assign({}, DEFAULTS, store.get('vot.settings', {}));
   if (settings.autoAdvance === true) settings.autoAdvance = 'always';     // older boolean setting
   if (settings.autoAdvance === false) settings.autoAdvance = 'off';
@@ -48,7 +48,7 @@
   let refBuffer = null;       // decoded reference audio
   let takes = {};             // key -> [{d, ts, est}]
   let selIdx = 0;
-  let ctx = null, micStream = null, levelNode = null, micInput = null, filterNode = null, micWanted = false;
+  let ctx = null, micStream = null, levelNode = null, micInput = null, filterNode = null;
   let lastDb = -100;
   let take = null;            // {det, mode, sec, line, status}
   let playing = null;         // {src, ids}
@@ -102,22 +102,29 @@
     }
     micInput = c.createMediaStreamSource(micStream);
     micInput.connect(filterNode);
-    micWanted = true;
+    await c.resume();
     $('#micState').textContent = 'Mic on';
     $('#btnMic').textContent = 'Mic is on';
     return true;
   }
-  // Let go of the mic completely (other apps can use it). Any take in progress is cancelled.
-  function releaseMic() {
-    if (take) { take = null; renderTakeState(); }
-    if (calib) { calib = null; $('#btnRoom').disabled = $('#btnVoice').disabled = false; $('#calibNote').textContent = 'Setup was interrupted when the app went to the background. Try again.'; }
-    stopPlayback();
+  // Stop the mic completely so other apps can use it.
+  function closeMic() {
     if (micInput) { try { micInput.disconnect(); } catch (e) { /* already gone */ } micInput = null; }
     if (micStream) { micStream.getTracks().forEach((t) => t.stop()); micStream = null; }
     lastDb = -100;
     $('#micState').textContent = 'Mic off';
     $('#btnMic').textContent = 'Turn on mic';
-    if (ctx && ctx.state === 'running') ctx.suspend().catch(() => {});
+    if (ctx && ctx.state === 'running' && !playing) ctx.suspend().catch(() => {});
+  }
+  // The mic is only held while armed or timing, during setup, or with Settings open.
+  function idleMic() { if (!take && !calib && !$('#dlgSettings').open) closeMic(); }
+  // The app went to the background or lost focus: cancel everything and let go of the mic.
+  function releaseMic() {
+    clearPending();
+    if (take) { take = null; renderTakeState(); }
+    if (calib) { calib = null; $('#btnRoom').disabled = $('#btnVoice').disabled = false; $('#calibNote').textContent = 'Setup was interrupted when the app went to the background. Try again.'; }
+    stopPlayback();
+    closeMic();
   }
 
   function onLevel({ t, db, f }) {
@@ -159,6 +166,7 @@
     if (!P) { openProjects(); return; }
     clearPending();
     stopPlayback();
+    if (!micStream) { $('#status').textContent = 'Opening mic…'; $('#status').className = 'status armed'; }
     if (!(await ensureMic())) return;
     requestWakeLock();
     const mode = settings.mode;
@@ -172,6 +180,7 @@
   function cancelTake() {
     if (!take) return;
     take = null; renderTakeState();
+    idleMic();
   }
   function finishNow() {
     if (isLive() && take.det.finish()) finishTake(true);
@@ -186,6 +195,7 @@
     if (isLive()) {
       take = null; renderTakeState();
       $('#status').textContent = 'Take discarded';
+      if (settings.autoArm) arm(); else idleMic();
       return;
     }
     if (!lastSaved || !P) return;
@@ -202,6 +212,7 @@
     $('#prevResult').textContent = `Previous take discarded (${ls.label}).`;
     renderLines(); renderTakeState();
     $('#status').textContent = 'Take discarded';
+    if (settings.autoArm) arm(); else idleMic();
   }
   function saveTake(key, d, est, ts) {
     (takes[key] = takes[key] || []).push({ d: +d.toFixed(3), ts, tt: settings.target, est: !!est });
@@ -263,6 +274,7 @@
     } else if (settings.autoArm) {
       later(() => { if (!take && !playing) arm(); }, 1300);
     }
+    if (!settings.autoArm) closeMic();
   }
   function showResult(dur, target) {
     const g = VOT.grade(dur, target, settings.tolerance);
@@ -708,13 +720,11 @@
       else if (k === 'p' || k === 'P') { e.preventDefault(); playSelection(false); }
     });
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden') {
-        const wanted = micWanted; releaseMic(); micWanted = wanted;
-      } else {
-        requestWakeLock();
-        if (micWanted) ensureMic();
-      }
+      if (document.visibilityState === 'hidden') releaseMic();
+      else requestWakeLock();
     });
+    window.addEventListener('blur', () => { setTimeout(() => { if (!document.hasFocus()) releaseMic(); }, 250); });
+    $('#dlgSettings').addEventListener('close', idleMic);
     document.addEventListener('pointerdown', requestWakeLock, { passive: true });
     document.addEventListener('keydown', requestWakeLock);
   }
