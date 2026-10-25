@@ -12,7 +12,7 @@
   };
   const DEFAULTS = { thresholdDb: -45, holdLine: 0.7, holdSection: 2.0, tolerance: 0.25, target: 'strict', mode: 'line',
     autoAdvance: 'always', autoArm: false, listenToTarget: true, minTakePct: 40, autoPlay: false, guide: 'off', textSize: 26, theme: 'dark', calibrated: false, bannerDismissed: false };
-  const APP_VERSION = '1.5.2';
+  const APP_VERSION = '1.5.3';
   const settings = Object.assign({}, DEFAULTS, store.get('vot.settings', {}));
   if (settings.autoAdvance === true) settings.autoAdvance = 'always';     // older boolean setting
   if (settings.autoAdvance === false) settings.autoAdvance = 'off';
@@ -162,7 +162,7 @@
     const src = c.createBufferSource(); src.buffer = refBuffer; src.connect(c.destination);
     const s = Math.max(0, start - padBefore); const d = Math.max(0.1, end - s + padAfter);
     src.start(0, s, d);
-    playing = { src, ids };
+    playing = { src, ids, armAfter: !!onDone };
     ids.forEach((id) => { const el = document.querySelector(`.line[data-id="${id}"]`); if (el) el.classList.add('playing'); });
     src.onended = () => { if (playing && playing.src === src) { stopPlayback(); if (onDone) onDone(); } };
     renderButtons();
@@ -656,7 +656,8 @@
   // ---------- navigation ----------
   function select(idx, scroll = true, opts = {}) {
     if (!P) return;
-    let keepArmed = false;
+    // Playback that was going to arm afterwards hands that on to the line you move to.
+    let keepArmed = !!(playing && playing.armAfter);
     if (take) {
       // Tapping the line (or section) you're armed on or reading does nothing.
       const target = lines[Math.max(0, Math.min(lines.length - 1, idx))];
@@ -670,7 +671,7 @@
       }
       // Tapping a different one cancels any take in progress (nothing saved) and goes there;
       // with auto re-arm on it stays armed on the new line, keeping the mic open.
-      keepArmed = settings.autoArm;
+      keepArmed = keepArmed || settings.autoArm;
       const wasLive = isLive();
       if (keepArmed) { take = null; renderTakeState(); } else cancelTake();
       if (wasLive) $('#status').textContent = 'Take cancelled';
