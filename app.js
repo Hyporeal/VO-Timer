@@ -12,7 +12,7 @@
   };
   const DEFAULTS = { thresholdDb: -45, holdLine: 0.7, holdSection: 2.0, tolerance: 0.25, target: 'strict', mode: 'line',
     autoAdvance: 'always', autoArm: false, listenToTarget: true, minTakePct: 40, textSize: 26, theme: 'dark', calibrated: false, bannerDismissed: false };
-  const APP_VERSION = '1.4.1';
+  const APP_VERSION = '1.4.2';
   const settings = Object.assign({}, DEFAULTS, store.get('vot.settings', {}));
   if (settings.autoAdvance === true) settings.autoAdvance = 'always';     // older boolean setting
   if (settings.autoAdvance === false) settings.autoAdvance = 'off';
@@ -48,7 +48,7 @@
   let refBuffer = null;       // decoded reference audio
   let takes = {};             // key -> [{d, ts, est}]
   let selIdx = 0;
-  let ctx = null, micStream = null, levelNode = null;
+  let ctx = null, micStream = null, levelNode = null, micInput = null, filterNode = null, micWanted = false;
   let lastDb = -100;
   let take = null;            // {det, mode, sec, line, status}
   let playing = null;         // {src, ids}
@@ -92,16 +92,32 @@
       toast(e && e.name === 'NotAllowedError' ? 'Mic permission was refused. Allow it in Chrome’s site settings, then try again.' : 'Couldn’t open the mic: ' + (e && e.message ? e.message : e));
       return false;
     }
-    if (!levelNode) await c.audioWorklet.addModule('level-worklet.js');
-    const src = c.createMediaStreamSource(micStream);
-    const hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 90;
-    levelNode = new AudioWorkletNode(c, 'level-processor');
-    const sink = c.createGain(); sink.gain.value = 0;
-    src.connect(hp).connect(levelNode).connect(sink).connect(c.destination);
-    levelNode.port.onmessage = (ev) => onLevel(ev.data);
+    if (!levelNode) {
+      await c.audioWorklet.addModule('level-worklet.js');
+      filterNode = c.createBiquadFilter(); filterNode.type = 'highpass'; filterNode.frequency.value = 90;
+      levelNode = new AudioWorkletNode(c, 'level-processor');
+      const sink = c.createGain(); sink.gain.value = 0;
+      filterNode.connect(levelNode).connect(sink).connect(c.destination);
+      levelNode.port.onmessage = (ev) => onLevel(ev.data);
+    }
+    micInput = c.createMediaStreamSource(micStream);
+    micInput.connect(filterNode);
+    micWanted = true;
     $('#micState').textContent = 'Mic on';
     $('#btnMic').textContent = 'Mic is on';
     return true;
+  }
+  // Let go of the mic completely (other apps can use it). Any take in progress is cancelled.
+  function releaseMic() {
+    if (take) { take = null; renderTakeState(); }
+    if (calib) { calib = null; $('#btnRoom').disabled = $('#btnVoice').disabled = false; $('#calibNote').textContent = 'Setup was interrupted when the app went to the background. Try again.'; }
+    stopPlayback();
+    if (micInput) { try { micInput.disconnect(); } catch (e) { /* already gone */ } micInput = null; }
+    if (micStream) { micStream.getTracks().forEach((t) => t.stop()); micStream = null; }
+    lastDb = -100;
+    $('#micState').textContent = 'Mic off';
+    $('#btnMic').textContent = 'Turn on mic';
+    if (ctx && ctx.state === 'running') ctx.suspend().catch(() => {});
   }
 
   function onLevel({ t, db, f }) {
@@ -540,7 +556,15 @@
 
   // ---------- navigation ----------
   function select(idx, scroll = true) {
-    if (!P || isLive()) return;                    // taps on the script can't interrupt a take
+    if (!P) return;
+    if (isLive()) {
+      // Tapping the line (or section) being read does nothing; tapping a different one cancels the take and goes there.
+      const target = lines[Math.max(0, Math.min(lines.length - 1, idx))];
+      const same = take.mode === 'section' ? target.sec === take.sec : target === take.line;
+      if (same) return;
+      take = null; renderTakeState();
+      $('#status').textContent = 'Take cancelled';
+    }
     clearPending();
     if (take) cancelTake();
     stopPlayback();
@@ -683,7 +707,14 @@
       else if (k === 'ArrowUp' || k === 'ArrowLeft' || k === 'PageUp') { e.preventDefault(); move(-1); }
       else if (k === 'p' || k === 'P') { e.preventDefault(); playSelection(false); }
     });
-    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') requestWakeLock(); });
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') {
+        const wanted = micWanted; releaseMic(); micWanted = wanted;
+      } else {
+        requestWakeLock();
+        if (micWanted) ensureMic();
+      }
+    });
     document.addEventListener('pointerdown', requestWakeLock, { passive: true });
     document.addEventListener('keydown', requestWakeLock);
   }
@@ -695,6 +726,6 @@
     if (last) { try { await openProject(last); } catch (e) { /* storage unavailable */ } }
     if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
   }
-  window.__vot = { get take() { return take; }, get takes() { return takes; }, get lines() { return lines; }, settings, select, arm, handleFiles };
+  window.__vot = { get mic() { return micStream; }, get take() { return take; }, get takes() { return takes; }, get lines() { return lines; }, settings, select, arm, handleFiles };
   boot();
 })();
