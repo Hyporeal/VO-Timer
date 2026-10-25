@@ -12,7 +12,7 @@
   };
   const DEFAULTS = { thresholdDb: -45, holdLine: 0.7, holdSection: 2.0, tolerance: 0.25, target: 'strict', mode: 'line',
     autoAdvance: 'always', autoArm: false, listenToTarget: true, minTakePct: 40, autoPlay: false, textSize: 26, theme: 'dark', calibrated: false, bannerDismissed: false };
-  const APP_VERSION = '1.4.6';
+  const APP_VERSION = '1.4.7';
   const settings = Object.assign({}, DEFAULTS, store.get('vot.settings', {}));
   if (settings.autoAdvance === true) settings.autoAdvance = 'always';     // older boolean setting
   if (settings.autoAdvance === false) settings.autoAdvance = 'off';
@@ -611,7 +611,13 @@
     } else select(selIdx + dir, true, opts);
   }
   function playSelection(section, onDone) {
-    if (isLive()) return;
+    if (take) {
+      // Armed or mid-take: drop it (nothing saved), play, then arm again when playback ends.
+      const wasLive = isLive();
+      take = null; renderTakeState(); clearPending();
+      if (wasLive) $('#status').textContent = 'Take discarded';
+      if (!onDone) onDone = () => { if (!take && !playing) arm(); };
+    }
     if (playing) { stopPlayback(); return; }
     const ln = curLine(); if (!ln) return;
     if (section || settings.mode === 'section') playRange(ln.sec.start, ln.sec.end, ln.sec.lines.map((l) => l.id), onDone);
