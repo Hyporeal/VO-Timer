@@ -12,7 +12,7 @@
   };
   const DEFAULTS = { thresholdDb: -45, holdLine: 0.7, holdSection: 2.0, tolerance: 0.25, target: 'strict', mode: 'line',
     autoAdvance: 'always', autoArm: false, listenToTarget: true, minTakePct: 40, autoPlay: false, guide: 'off', textSize: 26, theme: 'dark', calibrated: false, bannerDismissed: false };
-  const APP_VERSION = '1.5.4';
+  const APP_VERSION = '1.5.5';
   const settings = Object.assign({}, DEFAULTS, store.get('vot.settings', {}));
   if (settings.autoAdvance === true) settings.autoAdvance = 'always';     // older boolean setting
   if (settings.autoAdvance === false) settings.autoAdvance = 'off';
@@ -674,15 +674,15 @@
       // Tapping the line (or section) you're armed on or reading does nothing.
       const target = lines[Math.max(0, Math.min(lines.length - 1, idx))];
       const same = take.mode === 'section' ? target.sec === take.sec : target === take.line;
-      if (same) {
-        // With "play each line" on, tapping the armed line replays it, then arms again. During a take it still does nothing.
-        if (!(settings.autoPlay && refBuffer && take.status === 'armed')) return;
+      if (same && take.status === 'armed') {
+        // Armed (not yet reading): with "play each line" on, tapping the line replays it, then arms again; otherwise nothing.
+        if (!(settings.autoPlay && refBuffer)) return;
         take = null; renderTakeState(); clearPending(); stopPlayback();
         playSelection(false, afterSpeaker(() => { if (!take && !playing) arm(); }));
         return;
       }
-      // Tapping a different one cancels any take in progress (nothing saved) and goes there;
-      // with auto re-arm on it stays armed on the new line, keeping the mic open.
+      // Mid-take, tapping any line (this one included) discards the take and moves there like any other move;
+      // with auto re-arm on it arms again (after playing the line, if "play each line" is on).
       keepArmed = keepArmed || settings.autoArm;
       const wasLive = isLive();
       if (keepArmed) { take = null; renderTakeState(); } else cancelTake();
