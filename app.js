@@ -12,7 +12,7 @@
   };
   const DEFAULTS = { thresholdDb: -45, holdLine: 0.7, holdSection: 2.0, tolerance: 0.25, target: 'strict', mode: 'line',
     autoAdvance: 'always', autoArm: false, listenToTarget: true, minTakePct: 40, autoPlay: false, guide: 'off', textSize: 26, theme: 'dark', calibrated: false, bannerDismissed: false };
-  const APP_VERSION = '1.5.5';
+  const APP_VERSION = '1.5.6';
   const settings = Object.assign({}, DEFAULTS, store.get('vot.settings', {}));
   if (settings.autoAdvance === true) settings.autoAdvance = 'always';     // older boolean setting
   if (settings.autoAdvance === false) settings.autoAdvance = 'off';
@@ -499,7 +499,7 @@
       const head = document.querySelector(`.sec[data-id="${s.id}"] .sec-head`);
       head.innerHTML = `<span class="name"></span><span class="mark">${s.mark || ''}</span><span class="spacer"></span>
         <span class="num">${fmt(targetOf(s))} s</span>${hasRoom() ? `<span class="num" title="Room after this section">+${fmt(Math.max(0, s.roomAfter))}</span>` : ''}${chipHtml('sec:' + s.id, targetOf(s))}`;
-      head.querySelector('.name').textContent = secName(s);
+      head.querySelector('.name').textContent = s.lines[0] && s.lines[0].title ? '' : secName(s);
       for (const ln of s.lines) {
         const meta = document.querySelector(`.line[data-id="${ln.id}"] .meta`);
         meta.innerHTML = `<span class="mark">${ln.mark || ''}</span><span class="tgt num" title="${ln.est ? 'Estimated from the section time' : 'Target'}">${ln.est ? '~' : ''}${fmt(targetOf(ln))}</span>${chipHtml(ln.id, targetOf(ln))}`;
@@ -585,6 +585,7 @@
     $('#btnPlaySec').disabled = !has || !refBuffer;
     $('#btnPlay').textContent = playing ? 'Stop' : settings.mode === 'section' ? 'Play section' : 'Play line';
     $('#btnPlaySec').hidden = settings.mode === 'section';
+    $('.transport').classList.toggle('one-play', settings.mode === 'section');
     $('#btnPlaySec').textContent = 'Play section';
     $('#modeLine').setAttribute('aria-pressed', settings.mode === 'line');
     $('#modeSection').setAttribute('aria-pressed', settings.mode === 'section');
@@ -783,7 +784,7 @@
   function syncSettingsUI() {
     $('#sThr').value = settings.thresholdDb; $('#oThr').textContent = settings.thresholdDb + ' dB';
     $('#sHoldLine').value = settings.holdLine; $('#oHoldLine').textContent = settings.holdLine.toFixed(2) + ' s';
-    $('#sHoldSec').value = settings.holdSection; $('#oHoldSec').textContent = settings.holdSection.toFixed(1) + ' s';
+    $('#sHoldSec').value = settings.holdSection; $('#oHoldSec').textContent = settings.holdSection.toFixed(2) + ' s';
     $('#sTol').value = settings.tolerance; $('#oTol').textContent = settings.tolerance.toFixed(2) + ' s';
     $('#sText').value = settings.textSize; $('#oText').textContent = settings.textSize + ' px';
     $('#selAdv').value = settings.autoAdvance; $('#cArm').checked = settings.autoArm; $('#cPlay').checked = settings.autoPlay;

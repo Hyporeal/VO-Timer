@@ -154,6 +154,11 @@ button { cursor: pointer; }
 .meter-label { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
 .transport { display: grid; grid-template-columns: auto 1fr 1fr auto; gap: 8px; }
 .transport .btn { padding: 12px 10px; }
+.transport.one-play { grid-template-columns: auto 1fr auto; }
+.adv { border: 1px solid var(--rule); border-radius: 10px; padding: 0 14px; }
+.adv summary { cursor: pointer; padding: 12px 0; color: var(--muted); font-size: 13px; letter-spacing: .06em; text-transform: uppercase; }
+.adv[open] summary { border-bottom: 1px solid var(--rule); margin-bottom: 12px; }
+.adv-body { display: grid; gap: 12px; padding-bottom: 14px; }
 .arm-row { display: grid; grid-template-columns: minmax(0, 1fr) 96px; gap: 8px; }
 .arm {
   width: 100%; height: 88px; padding: 0 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; border-radius: 14px; border: 2px solid var(--accent);
@@ -204,12 +209,15 @@ td.n, th.n { text-align: right; font-family: var(--font-num); font-variant-numer
 .proj-item { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; border: 1px solid var(--rule); border-radius: 10px; padding: 10px 12px; }
 .proj-item .t { flex: 1 1 220px; min-width: 0; }
 .proj-item .t small { display: block; color: var(--muted); }
-.resume { position: fixed; left: 50%; top: calc(64px + env(safe-area-inset-top, 0px)); transform: translateX(-50%); z-index: 40;
+.notices { position: fixed; left: 50%; top: calc(66px + env(safe-area-inset-top, 0px)); transform: translateX(-50%); z-index: 40;
+  display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: calc(100vw - 32px); pointer-events: none; }
+.notices > * { pointer-events: auto; }
+.resume {
   display: flex; align-items: center; gap: 14px; background: var(--surface-2); border: 1px solid var(--rule); border-radius: 12px;
   padding: 8px 8px 8px 16px; box-shadow: 0 6px 24px rgba(0,0,0,.35); max-width: calc(100vw - 32px); }
 .script-end { max-width: 900px; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 24px 0 8px; color: var(--muted); border-top: 1px solid var(--rule); }
 .script-end p { margin: 0; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; }
-.toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 10px 16px; border-radius: 10px; font-weight: 700; z-index: 50; max-width: calc(100vw - 32px); }
+.toast { background: var(--fg); color: var(--bg); padding: 10px 16px; border-radius: 10px; font-weight: 700; max-width: calc(100vw - 32px); box-shadow: 0 6px 24px rgba(0,0,0,.35); }
 </style>
 </head>
 <body>
@@ -263,11 +271,11 @@ td.n, th.n { text-align: right; font-family: var(--font-num); font-variant-numer
       <button class="arm" id="btnArm"><span class="arm-main">Arm</span><small>starts on your first word</small></button>
       <button class="stop" id="btnStop" type="button" disabled aria-label="Stop and discard"><span class="sq" aria-hidden="true"></span>Stop</button>
     </div>
+    <button class="btn discard" id="btnDiscard" disabled>Discard last take</button>
     <div class="seg mode-seg" role="group" aria-label="Timing mode">
       <button id="modeLine" aria-pressed="true">Line</button>
       <button id="modeSection" aria-pressed="false">Section</button>
     </div>
-    <button class="btn discard" id="btnDiscard" disabled>Discard last take</button>
   </aside>
 </main>
 
@@ -289,21 +297,8 @@ td.n, th.n { text-align: right; font-family: var(--font-num); font-variant-numer
       <div class="row"><label for="sThr">Threshold</label><output id="oThr" class="num"></output>
         <input type="range" id="sThr" min="-80" max="-10" step="1">
         <small>Sound above this starts the clock. Breaths and chair noise should stay below it.</small></div>
-      <div class="row"><label for="sHoldLine">Silence that ends a take (line mode)</label><output id="oHoldLine" class="num"></output>
-        <input type="range" id="sHoldLine" min="0.3" max="2" step="0.05"></div>
-      <div class="row"><label for="sHoldSec">Silence that ends a take (section mode)</label><output id="oHoldSec" class="num"></output>
-        <input type="range" id="sHoldSec" min="0.8" max="5" step="0.1">
-        <small>Longer, so the pauses between lines don't end the section.</small></div>
       <div class="row"><label for="cMin">Keep listening until the target time</label><input type="checkbox" id="cMin">
         <small>Pauses before the target time can't end the take. Your time still ends at your last word, so finishing early still shows as under.</small></div>
-      <div class="row"><label for="sMinTake">Ignore sounds shorter than</label><output id="oMinTake" class="num"></output>
-        <input type="range" id="sMinTake" min="0" max="80" step="5">
-        <small>A cough or an "okay" between takes won't count as a take. You stay armed. Tapping to finish always keeps the take.</small></div>
-    </fieldset>
-    <fieldset>
-      <legend>Results</legend>
-      <div class="row"><label for="sTol">Yellow tolerance (over target)</label><output id="oTol" class="num"></output>
-        <input type="range" id="sTol" min="0" max="1" step="0.05"></div>
     </fieldset>
     <fieldset>
       <legend>Flow</legend>
@@ -325,6 +320,22 @@ td.n, th.n { text-align: right; font-family: var(--font-num); font-variant-numer
         <select id="selGuide"><option value="off">Off</option><option value="underline">Underline</option><option value="fill">Fill the letters</option></select>
         <small>While timing, shows roughly where you should be in the line at the target pace. It turns red once you're past the target.</small></div>
     </fieldset>
+    <details class="adv">
+      <summary>Advanced</summary>
+      <div class="adv-body">
+      <div class="row"><label for="sHoldLine">Silence that ends a take (line mode)</label><output id="oHoldLine" class="num"></output>
+        <input type="range" id="sHoldLine" min="0.3" max="2" step="0.05"></div>
+      <div class="row"><label for="sHoldSec">Silence that ends a take (section mode)</label><output id="oHoldSec" class="num"></output>
+        <input type="range" id="sHoldSec" min="0.8" max="5" step="0.1">
+        <small>Longer, so the pauses between lines don't end the section.</small></div>
+      <div class="row"><label for="sMinTake">Ignore sounds shorter than</label><output id="oMinTake" class="num"></output>
+        <input type="range" id="sMinTake" min="0" max="80" step="5">
+        <small>A cough or an "okay" between takes won't count as a take. You stay armed. Tapping to finish always keeps the take.</small></div>
+      <div class="row"><label for="sTol">Yellow tolerance (over target)</label><output id="oTol" class="num"></output>
+        <input type="range" id="sTol" min="0" max="1" step="0.05">
+        <small>How far over the target a take can go and still show yellow instead of red.</small></div>
+      </div>
+    </details>
     <fieldset>
       <legend>Keys and pedal</legend>
       <p class="note">Space or Enter arms, and finishes a take early (keeping it). Backspace discards. Esc stops everything. Arrow and Page keys move between lines, so a page-turner pedal works.</p>
@@ -355,8 +366,10 @@ td.n, th.n { text-align: right; font-family: var(--font-num); font-variant-numer
 </dialog>
 
 <input type="file" id="fileInput" accept=".json,application/json,audio/*,.mp3" multiple hidden>
-<div class="toast" id="toast" hidden></div>
-<div class="resume" id="resume" role="status" hidden><span></span><button class="btn" id="resumeTop" type="button">Start from the top</button></div>
+<div class="notices" aria-live="polite">
+  <div class="resume" id="resume" role="status" hidden><span></span><button class="btn" id="resumeTop" type="button">Start from the top</button></div>
+  <div class="toast" id="toast" hidden></div>
+</div>
 
 <script src="detector.js"></script>
 <script src="app.js"></script>
