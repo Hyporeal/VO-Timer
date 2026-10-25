@@ -12,7 +12,7 @@
   };
   const DEFAULTS = { thresholdDb: -45, holdLine: 0.7, holdSection: 2.0, tolerance: 0.25, target: 'strict', mode: 'line',
     autoAdvance: 'always', autoArm: false, listenToTarget: true, minTakePct: 40, autoPlay: false, guide: 'off', textSize: 26, theme: 'dark', calibrated: false, bannerDismissed: false };
-  const APP_VERSION = '1.5.3';
+  const APP_VERSION = '1.5.4';
   const settings = Object.assign({}, DEFAULTS, store.get('vot.settings', {}));
   if (settings.autoAdvance === true) settings.autoAdvance = 'always';     // older boolean setting
   if (settings.autoAdvance === false) settings.autoAdvance = 'off';
@@ -81,7 +81,7 @@
       later(fn, Math.round(Math.min(0.5, Math.max(0.15, lat + 0.05)) * 1000));
     };
   }
-  function later(fn, ms) { pending.push(setTimeout(fn, ms)); }
+  function later(fn, ms) { pending.push(setTimeout(fn, ms)); renderButtons(); }
 
   // ---------- audio ----------
   function audioCtx() {
@@ -222,6 +222,17 @@
     $('#status').textContent = 'Take discarded';
     if (settings.autoArm) arm(); else idleMic();
   }
+  // Stop everything: discard any take in progress, stop playback, cancel queued auto-actions, release the mic.
+  function stopAll() {
+    clearPending();
+    hideResume();
+    stopPlayback();
+    const had = !!take;
+    take = null;
+    closeMic();
+    renderTakeState();
+    $('#status').textContent = had ? 'Stopped · take discarded' : 'Stopped';
+  }
   function saveTake(key, d, est, ts) {
     (takes[key] = takes[key] || []).push({ d: +d.toFixed(3), ts, tt: settings.target, est: !!est });
     if (takes[key].length > 60) takes[key].shift();
@@ -237,7 +248,7 @@
     if (!manual && settings.minTakePct > 0 && dur < target * settings.minTakePct / 100) {
       take = null;
       arm().then(() => {
-        $('#verdict').textContent = `Ignored a ${fmt(dur)} s sound (too short to count). Still armed.`;
+        $('#verdict').textContent = `Ignored a ${fmt(dur)} s sound (too short)`;
         $('#verdict').className = 'verdict';
       });
       return;
@@ -550,16 +561,16 @@
   function renderTakeState(justFinished) {
     const arm = $('#btnArm'); const st = $('#status');
     if (take && take.status === 'armed') {
-      arm.innerHTML = 'Armed<small>tap to cancel</small>'; arm.className = 'arm on';
+      arm.innerHTML = '<span class="arm-main">Armed</span><small>tap to cancel</small>'; arm.className = 'arm on';
       st.textContent = 'Armed. Start reading when ready'; st.className = 'status armed';
       $('#clock').textContent = '0.00'; $('#clock').className = 'clock';
       $('#parts').innerHTML = '';
       setProgress(0, targetOf(take.mode === 'section' ? take.sec : take.line), '');
     } else if (take && take.status === 'live') {
-      arm.innerHTML = 'Timing<small>tap to finish</small>'; arm.className = 'arm live';
+      arm.innerHTML = '<span class="arm-main">Timing</span><small>tap to finish and keep</small>'; arm.className = 'arm live';
       st.textContent = 'Timing'; st.className = 'status live';
     } else {
-      arm.textContent = 'Arm'; arm.className = 'arm';
+      arm.innerHTML = '<span class="arm-main">Arm</span><small>starts on your first word</small>'; arm.className = 'arm';
       st.textContent = justFinished ? 'Take finished' : 'Ready'; st.className = 'status';
       if (!justFinished) renderPanel();
     }
@@ -582,7 +593,8 @@
     $('#tgtStrict').setAttribute('aria-pressed', settings.target === 'strict' || !hasRoom());
     $('#tgtWindow').disabled = !!P && !hasRoom();
     const canDiscard = isLive() || (!!lastSaved && !!P);
-    $('#btnDiscard').hidden = !canDiscard;
+    $('#btnDiscard').disabled = !canDiscard;
+    $('#btnStop').disabled = !(take || playing || pending.length);
     $('#btnDiscard').textContent = isLive() ? 'Discard this take' : 'Discard last take';
   }
 
@@ -798,6 +810,7 @@
   function wire() {
     $('#btnArm').onclick = armButton;
     $('#btnDiscard').onclick = discard;
+    $('#btnStop').onclick = stopAll;
     $('#resumeTop').onclick = toTop;
     $('#script').addEventListener('pointerdown', (e) => { if (!e.target.closest('#resume')) hideResume(); });
     $('#btnPrev').onclick = () => move(-1);
@@ -840,7 +853,8 @@
       if (e.target && /input|select|textarea/i.test(e.target.tagName)) return;
       const k = e.key;
       if (k === ' ' || k === 'Enter') { e.preventDefault(); armButton(); }
-      else if (k === 'Escape' || k === 'Backspace') { e.preventDefault(); if (take && take.status === 'armed') cancelTake(); else discard(); }
+      else if (k === 'Escape') { e.preventDefault(); stopAll(); }
+      else if (k === 'Backspace' || k === 'Delete') { e.preventDefault(); if (take && take.status === 'armed') cancelTake(); else discard(); }
       else if (k === 'ArrowDown' || k === 'ArrowRight' || k === 'PageDown') { e.preventDefault(); move(1); }
       else if (k === 'ArrowUp' || k === 'ArrowLeft' || k === 'PageUp') { e.preventDefault(); move(-1); }
       else if (k === 'p' || k === 'P') { e.preventDefault(); playSelection(false); }
