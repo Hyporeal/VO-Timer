@@ -12,7 +12,7 @@
   };
   const DEFAULTS = { thresholdDb: -45, holdLine: 0.7, holdSection: 2.0, tolerance: 0.25, target: 'strict', mode: 'line',
     autoAdvance: 'always', autoArm: false, listenToTarget: true, minTakePct: 40, autoPlay: false, guide: 'off', micSource: 'builtin', textSize: 26, theme: 'dark', calibrated: false, bannerDismissed: false };
-  const APP_VERSION = '1.5.12';
+  const APP_VERSION = '1.5.13';
   const settings = Object.assign({}, DEFAULTS, store.get('vot.settings', {}));
   if (settings.autoAdvance === true) settings.autoAdvance = 'always';     // older boolean setting
   if (settings.autoAdvance === false) settings.autoAdvance = 'off';
@@ -184,9 +184,22 @@
       } catch (e) { /* the track was stopped */ }
     })();
   }
+  // After a Bluetooth mic is released, Android can keep the earbuds in call mode until a new audio output starts.
+  // Playing a moment of silence makes it re-check the route and drop the call link.
+  function kickAudioRoute() {
+    try {
+      const c = new (window.AudioContext || window.webkitAudioContext)();
+      const s = c.createBufferSource(); s.buffer = c.createBuffer(1, Math.round(c.sampleRate * 0.2), c.sampleRate); s.connect(c.destination);
+      const done = () => { if (c.state !== 'closed') c.close().catch(() => {}); };
+      s.onended = done;
+      c.resume().then(() => s.start()).catch(done);
+      setTimeout(done, 2000);
+    } catch (e) { /* no audio output available */ }
+  }
   function closePlaybackEngine() { if (ctx && !playing) { ctx.close().catch(() => {}); ctx = null; } }
   // Stop the mic completely so other apps can use it.
-  function closeMic() {
+  function closeMic(opts = {}) {
+    const wasBluetooth = !!micStream && NOT_BUILTIN.test(micLabel);
     if (micInput) { try { micInput.disconnect(); } catch (e) { /* already gone */ } micInput = null; }
     if (micStream) { micStream.getTracks().forEach((t) => t.stop()); micStream = null; }
     if (levelNode) { levelNode.port.onmessage = null; levelNode = null; }
@@ -198,6 +211,7 @@
     $('#micState').textContent = 'Mic off';
     $('#btnMic').textContent = 'Turn on mic';
     renderMicUsing();
+    if (wasBluetooth && !opts.noKick) setTimeout(kickAudioRoute, 300);
   }
   function renderMicUsing() {
     const el = $('#micUsing'); if (!el) return;
@@ -239,7 +253,7 @@
     if (isLive()) return;
     cancelTake();
     stopPlayback();
-    if (micStream && !$('#dlgSettings').open) closeMic();         // play in normal (music) quality; re-arming reopens the mic
+    if (micStream && !$('#dlgSettings').open) closeMic({ noKick: true });   // play in normal (music) quality; the playback itself resets the route
     const c = audioCtx(); await c.resume();
     const src = c.createBufferSource(); src.buffer = refBuffer; src.connect(c.destination);
     const s = Math.max(0, start - padBefore); const d = Math.max(0.1, end - s + padAfter);
