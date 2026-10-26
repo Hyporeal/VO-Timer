@@ -11,8 +11,8 @@
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage unavailable */ } },
   };
   const DEFAULTS = { thresholdDb: -45, holdLine: 0.7, holdSection: 2.0, tolerance: 0.25, target: 'strict', mode: 'line',
-    autoAdvance: 'always', autoArm: false, listenToTarget: true, minTakePct: 40, autoPlay: false, guide: 'off', textSize: 26, theme: 'dark', calibrated: false, bannerDismissed: false };
-  const APP_VERSION = '1.5.10';
+    autoAdvance: 'always', autoArm: false, listenToTarget: true, minTakePct: 40, autoPlay: false, guide: 'off', micSource: 'builtin', textSize: 26, theme: 'dark', calibrated: false, bannerDismissed: false };
+  const APP_VERSION = '1.5.11';
   const settings = Object.assign({}, DEFAULTS, store.get('vot.settings', {}));
   if (settings.autoAdvance === true) settings.autoAdvance = 'always';     // older boolean setting
   if (settings.autoAdvance === false) settings.autoAdvance = 'off';
@@ -49,6 +49,8 @@
   let takes = {};             // key -> [{d, ts, est}]
   let selIdx = 0;
   let ctx = null, micStream = null, levelNode = null, micInput = null, filterNode = null;
+  let micCtx = null;          // audio engine used only while the mic is open; closed with it
+  let micLabel = '';
   let lastDb = -100;
   let take = null;            // {det, mode, sec, line, status}
   let playing = null;         // {src, ids}
@@ -88,28 +90,53 @@
     if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
     return ctx;
   }
+  // Bluetooth earbuds switch to phone-call mode when their mic is used, so prefer the tablet's own mic.
+  const NOT_BUILTIN = /bluetooth|\bbt\b|sco|hands-?free|buds|liberty|anker|airpods|usb|wired/i;
+  async function findBuiltInMic() {
+    try {
+      const ins = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput' && d.label && d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications');
+      const ok = ins.filter((d) => !NOT_BUILTIN.test(d.label));
+      const pick = ok.find((d) => /speakerphone|built-?in|internal|bottom|microphone/i.test(d.label)) || ok.find((d) => !/headset/i.test(d.label) || /earpiece/i.test(d.label));
+      return pick ? pick.deviceId : null;
+    } catch (e) { return null; }
+  }
+  async function openStream(deviceId) {
+    const audio = { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 };
+    if (deviceId) audio.deviceId = { exact: deviceId };
+    return navigator.mediaDevices.getUserMedia({ audio });
+  }
   async function ensureMic() {
     if (micStream && micStream.active) return true;
-    const c = audioCtx();
-    await c.resume();
     try {
-      micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 } });
+      if (settings.micSource === 'builtin') {
+        let id = await findBuiltInMic();                       // device names are only known after permission
+        try { micStream = await openStream(id); } catch (e) { if (!id) throw e; micStream = await openStream(null); }
+        const label = micStream.getAudioTracks()[0] ? micStream.getAudioTracks()[0].label : '';
+        if (!id && NOT_BUILTIN.test(label)) {                   // first run: it opened the earbuds; switch to the tablet mic
+          id = await findBuiltInMic();
+          if (id) { micStream.getTracks().forEach((t) => t.stop()); micStream = await openStream(id); }
+        }
+      } else micStream = await openStream(null);
     } catch (e) {
+      micStream = null;
       $('#micState').textContent = 'Mic blocked';
-      toast(e && e.name === 'NotAllowedError' ? 'Mic permission was refused. Allow it in Chrome’s site settings, then try again.' : 'Couldn’t open the mic: ' + (e && e.message ? e.message : e));
+      toast(e && e.name === 'NotAllowedError' ? 'Mic permission was refused. Allow it in the browser’s site settings, then try again.' : 'Couldn’t open the mic: ' + (e && e.message ? e.message : e));
       return false;
     }
-    if (!levelNode) {
-      await c.audioWorklet.addModule('level-worklet.js');
-      filterNode = c.createBiquadFilter(); filterNode.type = 'highpass'; filterNode.frequency.value = 90;
-      levelNode = new AudioWorkletNode(c, 'level-processor');
-      const sink = c.createGain(); sink.gain.value = 0;
-      filterNode.connect(levelNode).connect(sink).connect(c.destination);
-      levelNode.port.onmessage = (ev) => onLevel(ev.data);
-    }
+    const tr = micStream.getAudioTracks()[0]; micLabel = tr ? tr.label : '';
+    if (settings.micSource === 'builtin' && NOT_BUILTIN.test(micLabel)) toast('Couldn’t find the tablet’s built-in mic, so the default mic is in use.');
+    const c = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
+    micCtx = c;
+    await c.audioWorklet.addModule('level-worklet.js');
+    filterNode = c.createBiquadFilter(); filterNode.type = 'highpass'; filterNode.frequency.value = 90;
+    levelNode = new AudioWorkletNode(c, 'level-processor');
+    const sink = c.createGain(); sink.gain.value = 0;
+    filterNode.connect(levelNode).connect(sink).connect(c.destination);
+    levelNode.port.onmessage = (ev) => onLevel(ev.data);
     micInput = c.createMediaStreamSource(micStream);
     micInput.connect(filterNode);
     await c.resume();
+    renderMicUsing();
     $('#micState').textContent = 'Mic on';
     $('#btnMic').textContent = 'Mic is on';
     return true;
@@ -118,10 +145,18 @@
   function closeMic() {
     if (micInput) { try { micInput.disconnect(); } catch (e) { /* already gone */ } micInput = null; }
     if (micStream) { micStream.getTracks().forEach((t) => t.stop()); micStream = null; }
+    if (levelNode) { levelNode.port.onmessage = null; levelNode = null; }
+    filterNode = null;
+    if (micCtx) { micCtx.close().catch(() => {}); micCtx = null; }
+    if (ctx && !playing) { ctx.close().catch(() => {}); ctx = null; }   // a fresh playback engine next time
     lastDb = -100;
     $('#micState').textContent = 'Mic off';
     $('#btnMic').textContent = 'Turn on mic';
-    if (ctx && ctx.state === 'running' && !playing) ctx.suspend().catch(() => {});
+    renderMicUsing();
+  }
+  function renderMicUsing() {
+    const el = $('#micUsing'); if (!el) return;
+    el.textContent = micStream ? `In use: ${micLabel || 'unnamed mic'}` : 'Mic is off.';
   }
   // The mic is only held while armed or timing, during setup, or with Settings open.
   function idleMic() { if (!take && !calib && !$('#dlgSettings').open) closeMic(); }
@@ -158,6 +193,7 @@
     if (isLive()) return;
     cancelTake();
     stopPlayback();
+    if (micStream && !$('#dlgSettings').open) closeMic();         // play in normal (music) quality; re-arming reopens the mic
     const c = audioCtx(); await c.resume();
     const src = c.createBufferSource(); src.buffer = refBuffer; src.connect(c.destination);
     const s = Math.max(0, start - padBefore); const d = Math.max(0.1, end - s + padAfter);
@@ -316,8 +352,7 @@
   async function startCalib(kind) {
     if (!(await ensureMic())) return;
     cancelTake(); stopPlayback();
-    const c = audioCtx();
-    calib = { kind, until: c.currentTime + (kind === 'room' ? 3 : 5), samples: [] };
+    calib = { kind, until: micCtx.currentTime + (kind === 'room' ? 3 : 5), samples: [] };
     $('#calibNote').textContent = kind === 'room' ? 'Recording room tone. Stay quiet…' : 'Recording voice sample. Read a line at performance level now…';
     $('#btnRoom').disabled = $('#btnVoice').disabled = true;
   }
@@ -807,7 +842,7 @@
     $('#appVersion').textContent = 'VO Timer ' + APP_VERSION; $('#cMin').checked = settings.listenToTarget;
     $('#sMinTake').value = settings.minTakePct; $('#oMinTake').textContent = settings.minTakePct ? settings.minTakePct + '% of the line' : 'Off';
     $('#sizePreview').textContent = curLine() ? curLine().text : 'Your script will look like this at this size.';
-    $('#selTheme').value = settings.theme; $('#selGuide').value = settings.guide;
+    $('#selTheme').value = settings.theme; $('#selGuide').value = settings.guide; $('#selMic').value = settings.micSource; renderMicUsing();
     $('#script').classList.toggle('guide-fill', settings.guide === 'fill'); $('#script').classList.toggle('guide-under', settings.guide === 'underline');
     document.documentElement.style.setProperty('--script-size', settings.textSize + 'px');
     document.documentElement.dataset.theme = settings.theme;
@@ -885,6 +920,7 @@
     $('#cMin').onchange = (e) => { settings.listenToTarget = e.target.checked; saveSettings(); };
     $('#selTheme').onchange = (e) => { settings.theme = e.target.value; saveSettings(); syncSettingsUI(); };
     $('#selGuide').onchange = (e) => { settings.guide = e.target.value; saveSettings(); syncSettingsUI(); };
+    $('#selMic').onchange = async (e) => { settings.micSource = e.target.value; saveSettings(); const was = !!micStream; closeMic(); if (was) await ensureMic(); syncSettingsUI(); };
 
     document.addEventListener('keydown', (e) => {
       if (document.querySelector('dialog[open]')) return;

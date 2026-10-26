@@ -295,6 +295,9 @@ td.n, th.n { text-align: right; font-family: var(--font-num); font-variant-numer
         <button class="btn" id="btnRoom">1. Record room tone (3 s)</button>
         <button class="btn" id="btnVoice">2. Record a voice sample (5 s)</button>
       </div>
+      <div class="row"><label for="selMic">Microphone</label>
+        <select id="selMic"><option value="builtin">Built-in mic only</option><option value="default">System default</option></select>
+        <small>"Built-in mic only" keeps Bluetooth earbuds in normal music mode. <span id="micUsing"></span></small></div>
       <p class="note" id="calibNote">Sit where you'll read from. Record 3 seconds of silence, then read any line at performance level. The threshold is set from those two readings.</p>
       <div class="row"><label for="sThr">Threshold</label><output id="oThr" class="num"></output>
         <input type="range" id="sThr" min="-80" max="-10" step="1">
