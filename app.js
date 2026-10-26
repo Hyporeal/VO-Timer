@@ -12,7 +12,7 @@
   };
   const DEFAULTS = { thresholdDb: -45, holdLine: 0.7, holdSection: 2.0, tolerance: 0.25, target: 'strict', mode: 'line',
     autoAdvance: 'always', autoArm: false, listenToTarget: true, minTakePct: 40, autoPlay: false, guide: 'off', micSource: 'builtin', textSize: 26, theme: 'dark', calibrated: false, bannerDismissed: false };
-  const APP_VERSION = '1.5.11';
+  const APP_VERSION = '1.5.12';
   const settings = Object.assign({}, DEFAULTS, store.get('vot.settings', {}));
   if (settings.autoAdvance === true) settings.autoAdvance = 'always';     // older boolean setting
   if (settings.autoAdvance === false) settings.autoAdvance = 'off';
@@ -51,6 +51,8 @@
   let ctx = null, micStream = null, levelNode = null, micInput = null, filterNode = null;
   let micCtx = null;          // audio engine used only while the mic is open; closed with it
   let micLabel = '';
+  let micReader = null;       // reads mic samples straight from the track (no audio engine, so nothing opens on the speaker side)
+  let micPath = '';
   let lastDb = -100;
   let take = null;            // {det, mode, sec, line, status}
   let playing = null;         // {src, ids}
@@ -125,28 +127,71 @@
     }
     const tr = micStream.getAudioTracks()[0]; micLabel = tr ? tr.label : '';
     if (settings.micSource === 'builtin' && NOT_BUILTIN.test(micLabel)) toast('Couldn’t find the tablet’s built-in mic, so the default mic is in use.');
-    const c = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
-    micCtx = c;
-    await c.audioWorklet.addModule('level-worklet.js');
-    filterNode = c.createBiquadFilter(); filterNode.type = 'highpass'; filterNode.frequency.value = 90;
-    levelNode = new AudioWorkletNode(c, 'level-processor');
-    const sink = c.createGain(); sink.gain.value = 0;
-    filterNode.connect(levelNode).connect(sink).connect(c.destination);
-    levelNode.port.onmessage = (ev) => onLevel(ev.data);
-    micInput = c.createMediaStreamSource(micStream);
-    micInput.connect(filterNode);
-    await c.resume();
+    if (window.MediaStreamTrackProcessor && tr) { startTrackReader(tr); micPath = 'track'; }
+    else {
+      const c = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
+      micCtx = c;
+      await c.audioWorklet.addModule('level-worklet.js');
+      filterNode = c.createBiquadFilter(); filterNode.type = 'highpass'; filterNode.frequency.value = 90;
+      levelNode = new AudioWorkletNode(c, 'level-processor');
+      const sink = c.createGain(); sink.gain.value = 0;
+      filterNode.connect(levelNode).connect(sink).connect(c.destination);
+      levelNode.port.onmessage = (ev) => onLevel(ev.data);
+      micInput = c.createMediaStreamSource(micStream);
+      micInput.connect(filterNode);
+      await c.resume();
+      micPath = 'engine';
+    }
     renderMicUsing();
     $('#micState').textContent = 'Mic on';
     $('#btnMic').textContent = 'Mic is on';
     return true;
   }
+  // Mic levels straight from the track: 90 Hz high-pass, one RMS reading per 10 ms, timed by sample count.
+  function makeHighPass(sr, fc) {
+    const w = 2 * Math.PI * fc / sr, cs = Math.cos(w), al = Math.sin(w) / (2 * Math.SQRT1_2);
+    const a0 = 1 + al, b0 = (1 + cs) / 2 / a0, b1 = -(1 + cs) / a0, b2 = b0, a1 = -2 * cs / a0, a2 = (1 - al) / a0;
+    let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+    return (x) => { const y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2; x2 = x1; x1 = x; y2 = y1; y1 = y; return y; };
+  }
+  function readMono(ad) {
+    const frames = ad.numberOfFrames, ch = ad.numberOfChannels, fmt = ad.format;
+    try { const out = new Float32Array(frames); ad.copyTo(out, { planeIndex: 0, format: 'f32-planar' }); return out; } catch (e) { /* convert below */ }
+    if (fmt === 'f32-planar') { const o = new Float32Array(frames); ad.copyTo(o, { planeIndex: 0 }); return o; }
+    if (fmt === 's16-planar') { const t = new Int16Array(frames); ad.copyTo(t, { planeIndex: 0 }); return Float32Array.from(t, (v) => v / 32768); }
+    if (fmt === 'f32') { const t = new Float32Array(frames * ch); ad.copyTo(t, { planeIndex: 0 }); const o = new Float32Array(frames); for (let i = 0; i < frames; i++) o[i] = t[i * ch]; return o; }
+    if (fmt === 's16') { const t = new Int16Array(frames * ch); ad.copyTo(t, { planeIndex: 0 }); const o = new Float32Array(frames); for (let i = 0; i < frames; i++) o[i] = t[i * ch] / 32768; return o; }
+    return new Float32Array(frames);
+  }
+  function startTrackReader(track) {
+    const reader = new MediaStreamTrackProcessor({ track }).readable.getReader();
+    micReader = reader;
+    let sr = 0, block = 0, base = 0, n = 0, sum = 0, cnt = 0, bStart = 0, hp = null;
+    (async () => {
+      try {
+        for (;;) {
+          const { value: ad, done } = await reader.read();
+          if (done || micReader !== reader) { if (ad) ad.close(); break; }
+          if (!sr) { sr = ad.sampleRate; block = Math.round(sr * 0.01); base = ad.timestamp / 1e6; hp = makeHighPass(sr, 90); }
+          const x = readMono(ad); ad.close();
+          for (let i = 0; i < x.length; i++) {
+            const y = hp(x[i]);
+            if (cnt === 0) bStart = base + n / sr;
+            sum += y * y; cnt++; n++;
+            if (cnt >= block) { onLevel({ t: bStart, db: 20 * Math.log10(Math.sqrt(sum / cnt) + 1e-9), f: cnt / sr }); sum = 0; cnt = 0; }
+          }
+        }
+      } catch (e) { /* the track was stopped */ }
+    })();
+  }
+  function closePlaybackEngine() { if (ctx && !playing) { ctx.close().catch(() => {}); ctx = null; } }
   // Stop the mic completely so other apps can use it.
   function closeMic() {
     if (micInput) { try { micInput.disconnect(); } catch (e) { /* already gone */ } micInput = null; }
     if (micStream) { micStream.getTracks().forEach((t) => t.stop()); micStream = null; }
     if (levelNode) { levelNode.port.onmessage = null; levelNode = null; }
     filterNode = null;
+    if (micReader) { const r = micReader; micReader = null; r.cancel().catch(() => {}); }
     if (micCtx) { micCtx.close().catch(() => {}); micCtx = null; }
     if (ctx && !playing) { ctx.close().catch(() => {}); ctx = null; }   // a fresh playback engine next time
     lastDb = -100;
@@ -172,6 +217,7 @@
   function onLevel({ t, db, f }) {
     lastDb = db;
     if (calib) {
+      if (calib.until === null) calib.until = t + calib.dur;
       calib.samples.push(db);
       if (t >= calib.until) finishCalib();
     }
@@ -209,6 +255,7 @@
     if (!P) { openProjects(); return; }
     clearPending();
     stopPlayback();
+    closePlaybackEngine();
     if (!micStream) { $('#status').textContent = 'Opening mic…'; $('#status').className = 'status armed'; }
     if (!(await ensureMic())) return;
     requestWakeLock();
@@ -352,7 +399,7 @@
   async function startCalib(kind) {
     if (!(await ensureMic())) return;
     cancelTake(); stopPlayback();
-    calib = { kind, until: micCtx.currentTime + (kind === 'room' ? 3 : 5), samples: [] };
+    calib = { kind, dur: kind === 'room' ? 3 : 5, until: null, samples: [] };
     $('#calibNote').textContent = kind === 'room' ? 'Recording room tone. Stay quiet…' : 'Recording voice sample. Read a line at performance level now…';
     $('#btnRoom').disabled = $('#btnVoice').disabled = true;
   }
@@ -434,7 +481,7 @@
     if (selEl && selIdx > 0) selEl.scrollIntoView({ block: settings.mode === 'section' ? 'start' : 'center', behavior: 'instant' });
     if (selIdx > 0) showResume(); else hideResume();
     if (rec.audio) {
-      try { refBuffer = await audioCtx().decodeAudioData(await rec.audio.arrayBuffer()); }
+      try { refBuffer = await audioCtx().decodeAudioData(await rec.audio.arrayBuffer()); closePlaybackEngine(); }
       catch (e) { toast('Couldn’t decode the reference audio.'); }
     }
     renderButtons();
@@ -956,6 +1003,6 @@
     if (last) { try { await openProject(last); } catch (e) { /* storage unavailable */ } }
     if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
   }
-  window.__vot = { get mic() { return micStream; }, get take() { return take; }, get takes() { return takes; }, get lines() { return lines; }, settings, select, arm, handleFiles };
+  window.__vot = { get micPath() { return micPath; }, get mic() { return micStream; }, get take() { return take; }, get takes() { return takes; }, get lines() { return lines; }, settings, select, arm, handleFiles };
   boot();
 })();
